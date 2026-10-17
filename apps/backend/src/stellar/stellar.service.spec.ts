@@ -38,6 +38,11 @@ jest.mock('@stellar/stellar-sdk', () => {
 describe('StellarService', () => {
   let service: StellarService;
   let mockServer: MockServer;
+  let mockCache: {
+    get: jest.Mock;
+    set: jest.Mock;
+    del: jest.Mock;
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -49,6 +54,12 @@ describe('StellarService', () => {
     mockServer = {
       loadAccount: jest.fn(),
       submitTransaction: jest.fn(),
+    };
+
+    mockCache = {
+      get: jest.fn().mockResolvedValue(null),
+      set: jest.fn().mockResolvedValue(undefined),
+      del: jest.fn().mockResolvedValue(undefined),
     };
 
     (Horizon.Server as jest.Mock).mockImplementation(() => mockServer);
@@ -70,7 +81,7 @@ describe('StellarService', () => {
       }),
     };
 
-    service = new StellarService(mockConfigService as any, {} as any);
+    service = new StellarService(mockConfigService as any, mockCache as any);
   });
 
   it('getAccountBalance should return balances from horizon account', async () => {
@@ -272,6 +283,38 @@ describe('StellarService', () => {
       mockServer.loadAccount.mockRejectedValue(new Error('Network connection failed'));
 
       await expect(service.getAccountBalance('GACCOUNT')).rejects.toThrow();
+    });
+
+    it('serves balances from cache without calling Horizon on a cache hit', async () => {
+      const cachedBalances = [{ asset_type: 'native', balance: '42' }];
+      mockCache.get.mockResolvedValue(cachedBalances);
+
+      const result = await service.getAccountBalance('GCACHED');
+
+      expect(result).toEqual(cachedBalances);
+      expect(mockCache.get).toHaveBeenCalledWith('stellar:balance:GCACHED');
+      expect(mockServer.loadAccount).not.toHaveBeenCalled();
+      expect(mockCache.set).not.toHaveBeenCalled();
+    });
+
+    it('fetches from Horizon and populates the cache on a cache miss', async () => {
+      const balances = [{ asset_type: 'native', balance: '7' }];
+      mockCache.get.mockResolvedValue(null);
+      mockServer.loadAccount.mockResolvedValue({ balances });
+
+      const result = await service.getAccountBalance('GMISS');
+
+      expect(result).toEqual(balances);
+      expect(mockServer.loadAccount).toHaveBeenCalledWith('GMISS');
+      expect(mockCache.set).toHaveBeenCalledWith('stellar:balance:GMISS', balances, 60000);
+    });
+
+    it('does not cache the response when Horizon throws', async () => {
+      mockCache.get.mockResolvedValue(null);
+      mockServer.loadAccount.mockRejectedValue(new Error('Account not found'));
+
+      await expect(service.getAccountBalance('GERROR')).rejects.toThrow();
+      expect(mockCache.set).not.toHaveBeenCalled();
     });
   });
 });

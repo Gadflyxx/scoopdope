@@ -123,6 +123,7 @@ export class StellarService implements OnApplicationShutdown {
    *
    * Queries the Horizon server for the account and returns its balance array,
    * which can include native XLM and any issued assets the account holds.
+   * Results are cached for 60 seconds to reduce Horizon API calls.
    *
    * @param publicKey - The Stellar public key (G...) of the account to query.
    * @returns An array of balance records from the Horizon API.
@@ -131,9 +132,17 @@ export class StellarService implements OnApplicationShutdown {
    * @throws {Error} on network failure when contacting the Horizon server.
    */
   async getAccountBalance(publicKey: string) {
+    const cacheKey = `stellar:balance:${publicKey}`;
+    const cached = await this.cacheManager.get<any>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     try {
       const account = await pRetry(() => this.server.loadAccount(publicKey), RETRY_OPTIONS);
-      return account.balances;
+      const balances = account.balances;
+      await this.cacheManager.set(cacheKey, balances, 60000); // 60 seconds
+      return balances;
     } catch (err: any) {
       if (err?.code === 'ETIMEDOUT' || err?.message?.toLowerCase().includes('timeout') || err?.message?.toLowerCase().includes('timed out')) {
         throw new GatewayTimeoutException('Network timeout while querying Stellar account balance');

@@ -7,6 +7,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { Deprecated } from '../common/versioning/deprecated.decorator';
+import { RateLimit } from '../rate-limit/rate-limit.decorator';
 
 @ApiTags('stellar')
 @Controller('stellar')
@@ -36,6 +37,7 @@ export class StellarController {
   }
 
   @Get('balance/:publicKey')
+  @RateLimit({ limit: 30, windowMs: 60000 })
   @ApiOperation({ summary: 'Get Stellar account balance' })
   @ApiResponse({ status: 400, description: 'Bad request' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
