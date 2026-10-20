@@ -45,6 +45,9 @@ export class InstructorApplication {
   @Column({ type: 'varchar', default: 'pending' })
   status: ApplicationStatus;
 
+  @Column({ type: 'varchar', default: 'en' })
+  locale: string;
+
   @Column({ nullable: true, type: 'text' })
   adminNote: string | null;
 

@@ -1,141 +1,109 @@
-/**
- * Helper to strip HTML tags and convert entities for plain text version
- */
-function htmlToPlainText(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
-    .trim();
-}
+const htmlEntities: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
 
-/**
- * Base email template structure with HTML and plain text versions
- */
-interface EmailTemplate {
-  subject: string;
-  html: string;
-  text: string;
-}
+const escapeHtml = (value: string) =>
+  value.replace(/[&<>"']/g, (character) => htmlEntities[character]);
+
+const applicationMessages = {
+  en: {
+    receivedSubject: 'Application Received',
+    receivedTitle: 'We received your instructor application',
+    receivedBody:
+      'Thank you for applying to become an instructor. We will review your application and email you when a decision is made.',
+    approvedSubject: 'Application Approved',
+    approvedTitle: 'Your instructor application is approved',
+    approvedBody: 'Congratulations! You are now approved to teach on ScoopDope.',
+    rejectedSubject: 'Application Rejected',
+    rejectedTitle: 'Your instructor application was not approved',
+    rejectedBody: 'Thank you for your interest in teaching on ScoopDope. Reviewer feedback:',
+    greeting: 'Hello',
+  },
+  es: {
+    receivedSubject: 'Solicitud recibida',
+    receivedTitle: 'Hemos recibido tu solicitud para ser instructor',
+    receivedBody:
+      'Gracias por solicitar convertirte en instructor. Revisaremos tu solicitud y te enviaremos un correo cuando tomemos una decisión.',
+    approvedSubject: 'Solicitud aprobada',
+    approvedTitle: 'Tu solicitud para ser instructor ha sido aprobada',
+    approvedBody: '¡Enhorabuena! Ya puedes impartir cursos en ScoopDope.',
+    rejectedSubject: 'Solicitud rechazada',
+    rejectedTitle: 'Tu solicitud para ser instructor no ha sido aprobada',
+    rejectedBody: 'Gracias por tu interés en enseñar en ScoopDope. Comentarios del revisor:',
+    greeting: 'Hola',
+  },
+  fr: {
+    receivedSubject: 'Candidature reçue',
+    receivedTitle: 'Nous avons reçu votre candidature pour enseigner',
+    receivedBody:
+      'Merci d’avoir souhaité devenir formateur. Nous étudierons votre candidature et vous informerons par e-mail de notre décision.',
+    approvedSubject: 'Candidature approuvée',
+    approvedTitle: 'Votre candidature pour enseigner est approuvée',
+    approvedBody: 'Félicitations ! Vous pouvez désormais enseigner sur ScoopDope.',
+    rejectedSubject: 'Candidature rejetée',
+    rejectedTitle: 'Votre candidature pour enseigner n’a pas été approuvée',
+    rejectedBody:
+      'Merci de votre intérêt pour ScoopDope. Commentaire de la personne chargée de l’examen :',
+    greeting: 'Bonjour',
+  },
+  ar: {
+    receivedSubject: 'تم استلام الطلب',
+    receivedTitle: 'لقد استلمنا طلبك لتصبح مدرّسًا',
+    receivedBody:
+      'شكرًا لتقديم طلبك لتصبح مدرّسًا. سنراجع طلبك ونرسل إليك بريدًا إلكترونيًا عند اتخاذ القرار.',
+    approvedSubject: 'تمت الموافقة على الطلب',
+    approvedTitle: 'تمت الموافقة على طلبك لتصبح مدرّسًا',
+    approvedBody: 'تهانينا! يمكنك الآن التدريس على ScoopDope.',
+    rejectedSubject: 'تم رفض الطلب',
+    rejectedTitle: 'لم تتم الموافقة على طلبك لتصبح مدرّسًا',
+    rejectedBody: 'شكرًا لاهتمامك بالتدريس على ScoopDope. ملاحظات المراجع:',
+    greeting: 'مرحبًا',
+  },
+};
+
+type ApplicationLocale = keyof typeof applicationMessages;
+
+const applicationTemplate = (
+  kind: 'received' | 'approved' | 'rejected',
+  data: { userName: string; locale?: string; adminNote?: string | null }
+) => {
+  const locale = (data.locale || 'en').split('-')[0] as ApplicationLocale;
+  const messages = applicationMessages[locale] || applicationMessages.en;
+  const title = messages[`${kind}Title`];
+  const body = messages[`${kind}Body`];
+  const reviewerFeedback =
+    kind === 'rejected' && data.adminNote
+      ? `<blockquote>${escapeHtml(data.adminNote)}</blockquote>`
+      : '';
+
+  return {
+    subject: messages[`${kind}Subject`],
+    html: `<div lang="${locale}" dir="${locale === 'ar' ? 'rtl' : 'ltr'}" style="font-family:sans-serif;max-width:600px;margin:0 auto">
+      <h2>${title}</h2>
+      <p>${messages.greeting} ${escapeHtml(data.userName)},</p>
+      <p>${body}</p>
+      ${reviewerFeedback}
+    </div>`,
+  };
+};
 
 export const emailTemplates = {
-  /**
-   * Welcome email sent after user registration
-   */
-  welcome: (data: { userName: string; verificationUrl: string; logo?: string }): EmailTemplate => {
-    const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; background: #f9fafb; padding: 20px;">
-        <div style="background: white; border-radius: 8px; padding: 40px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-          ${data.logo ? `<img src="${data.logo}" alt="Logo" style="height: 40px; margin-bottom: 30px;">` : ''}
-          <h1 style="margin: 0 0 20px 0; font-size: 28px; color: #111827;">Welcome to scoopdope!</h1>
-          <p style="margin: 0 0 20px 0; color: #6b7280; line-height: 1.6;">
-            Hi ${data.userName},
-          </p>
-          <p style="margin: 0 0 20px 0; color: #6b7280; line-height: 1.6;">
-            Thank you for signing up! We're excited to have you join our learning community.
-            To get started, please verify your email address by clicking the button below.
-          </p>
-          <a href="${data.verificationUrl}" style="display: inline-block; background: #4f46e5; color: white; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 20px 0;">
-            Verify Email Address
-          </a>
-          <p style="margin: 30px 0 0 0; color: #9ca3af; font-size: 13px; line-height: 1.6;">
-            This link will expire in 24 hours. If you didn't create this account, you can safely ignore this email.
-          </p>
-        </div>
-        <p style="text-align: center; color: #9ca3af; font-size: 12px; margin-top: 20px;">
-          scoopdope • Blockchain Education Platform
-        </p>
-      </div>
-    `;
-    
-    return {
-      subject: 'Welcome to scoopdope - Verify Your Email',
-      html,
-      text: `Welcome to scoopdope!\n\nHi ${data.userName},\n\nThank you for signing up! Please verify your email by visiting this link:\n${data.verificationUrl}\n\nThis link will expire in 24 hours.\n\nIf you didn't create this account, you can safely ignore this email.\n\nscoopdope • Blockchain Education Platform`,
-    };
-  },
+  applicationReceived: (data: { userName: string; locale?: string }) =>
+    applicationTemplate('received', data),
 
-  /**
-   * Password reset email with unique reset link
-   */
-  passwordReset: (data: { userName: string; resetUrl: string; expiresIn: string; logo?: string }): EmailTemplate => {
-    const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; background: #f9fafb; padding: 20px;">
-        <div style="background: white; border-radius: 8px; padding: 40px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-          ${data.logo ? `<img src="${data.logo}" alt="Logo" style="height: 40px; margin-bottom: 30px;">` : ''}
-          <h1 style="margin: 0 0 20px 0; font-size: 28px; color: #111827;">Reset Your Password</h1>
-          <p style="margin: 0 0 20px 0; color: #6b7280; line-height: 1.6;">
-            Hi ${data.userName},
-          </p>
-          <p style="margin: 0 0 20px 0; color: #6b7280; line-height: 1.6;">
-            We received a request to reset your password. Click the button below to create a new password.
-          </p>
-          <a href="${data.resetUrl}" style="display: inline-block; background: #059669; color: white; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 20px 0;">
-            Reset Password
-          </a>
-          <p style="margin: 20px 0; color: #9ca3af; font-size: 13px; line-height: 1.6;">
-            This link will expire in ${data.expiresIn}. If you didn't request a password reset, you can safely ignore this email.
-          </p>
-          <p style="margin: 20px 0 0 0; color: #9ca3af; font-size: 13px; line-height: 1.6;">
-            For security reasons, never share this link with anyone.
-          </p>
-        </div>
-        <p style="text-align: center; color: #9ca3af; font-size: 12px; margin-top: 20px;">
-          scoopdope • Blockchain Education Platform
-        </p>
-      </div>
-    `;
-    
-    return {
-      subject: 'Reset Your scoopdope Password',
-      html,
-      text: `Reset Your Password\n\nHi ${data.userName},\n\nWe received a request to reset your password. Click the link below:\n${data.resetUrl}\n\nThis link will expire in ${data.expiresIn}.\n\nIf you didn't request this, you can safely ignore this email.\n\nFor security, never share this link with anyone.\n\nscoopdope • Blockchain Education Platform`,
-    };
-  },
+  applicationApproved: (data: { userName: string; locale?: string }) =>
+    applicationTemplate('approved', data),
 
-  /**
-   * Certificate issuance notification with on-chain details
-   */
-  certificateIssued: (data: { userName: string; courseTitle: string; certificateUrl: string; txHash: string; logo?: string }): EmailTemplate => {
-    const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; background: #f9fafb; padding: 20px;">
-        <div style="background: white; border-radius: 8px; padding: 40px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-          ${data.logo ? `<img src="${data.logo}" alt="Logo" style="height: 40px; margin-bottom: 30px;">` : ''}
-          <h1 style="margin: 0 0 20px 0; font-size: 28px; color: #111827;">🎉 Certificate Issued!</h1>
-          <p style="margin: 0 0 20px 0; color: #6b7280; line-height: 1.6;">
-            Hi ${data.userName},
-          </p>
-          <p style="margin: 0 0 20px 0; color: #6b7280; line-height: 1.6;">
-            Congratulations! Your certificate for <strong>${data.courseTitle}</strong> has been issued and recorded on the Stellar blockchain.
-          </p>
-          <div style="background: #f0fdf4; border-left: 4px solid #059669; padding: 15px; margin: 20px 0; border-radius: 4px;">
-            <p style="margin: 0; color: #166534; font-weight: 500;">Transaction ID</p>
-            <p style="margin: 5px 0 0 0; color: #4b5563; font-family: monospace; font-size: 12px; word-break: break-all;">${data.txHash}</p>
-          </div>
-          <a href="${data.certificateUrl}" style="display: inline-block; background: #4f46e5; color: white; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 20px 0;">
-            View Certificate
-          </a>
-          <p style="margin: 20px 0 0 0; color: #9ca3af; font-size: 13px; line-height: 1.6;">
-            Your credential is tamper-proof and verifiable on the Stellar network. You can share this certificate with employers and educational institutions.
-          </p>
-        </div>
-        <p style="text-align: center; color: #9ca3af; font-size: 12px; margin-top: 20px;">
-          scoopdope • Blockchain Education Platform
-        </p>
-      </div>
-    `;
-    
-    return {
-      subject: `Your Certificate for "${data.courseTitle}" is Ready`,
-      html,
-      text: `Certificate Issued!\n\nHi ${data.userName},\n\nCongratulations! Your certificate for ${data.courseTitle} has been issued and recorded on the Stellar blockchain.\n\nTransaction ID: ${data.txHash}\n\nView your certificate: ${data.certificateUrl}\n\nYour credential is tamper-proof and verifiable on the Stellar network.\n\nscoopdope • Blockchain Education Platform`,
-    };
-  },
+  applicationRejected: (data: { userName: string; locale?: string; adminNote?: string | null }) =>
+    applicationTemplate('rejected', data),
 
-  enrollment: (data: { userName: string; courseTitle: string; courseUrl: string; unsubscribeUrl: string }): EmailTemplate => {
-    const html = `
+  enrollment: (data: { userName: string; courseTitle: string; courseUrl: string; unsubscribeUrl: string }) => ({
+    subject: `You're enrolled in "${data.courseTitle}"`,
+    html: `
       <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
         <h2>Welcome to ${data.courseTitle}!</h2>
         <p>Hi ${data.userName},</p>
