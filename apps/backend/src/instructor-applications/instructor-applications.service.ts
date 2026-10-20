@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Repository } from 'typeorm';
 import { InstructorApplication } from './instructor-application.entity';
 import { UsersService } from '../users/users.service';
@@ -18,10 +19,11 @@ export class InstructorApplicationsService {
   constructor(
     @InjectRepository(InstructorApplication)
     private readonly repo: Repository<InstructorApplication>,
-    private readonly usersService: UsersService
+    private readonly usersService: UsersService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async apply(userId: string, dto: CreateInstructorApplicationDto) {
+  async apply(userId: string, dto: CreateInstructorApplicationDto, acceptLanguage = 'en') {
     if (!dto.agreementAccepted) {
       throw new BadRequestException('You must accept the instructor agreement');
     }
@@ -37,8 +39,21 @@ export class InstructorApplicationsService {
       throw new ConflictException('You are already an instructor');
     }
 
-    const application = this.repo.create({ ...dto, userId });
-    return this.repo.save(application);
+    const locale = acceptLanguage.split(',')[0].trim().split('-')[0].toLowerCase();
+    const application = this.repo.create({
+      ...dto,
+      userId,
+      locale: ['en', 'es', 'fr', 'ar'].includes(locale) ? locale : 'en',
+    });
+    const savedApplication = await this.repo.save(application);
+    this.eventEmitter.emit('application.submitted', {
+      applicationId: savedApplication.id,
+      userId,
+      userEmail: user.email,
+      userName: user.username || user.email,
+      locale: savedApplication.locale,
+    });
+    return savedApplication;
   }
 
   findMyApplication(userId: string) {
@@ -69,7 +84,7 @@ export class InstructorApplicationsService {
     application.reviewedBy = adminId;
     application.reviewedAt = new Date();
 
-    await this.repo.save(application);
+    const reviewedApplication = await this.repo.save(application);
 
     if (dto.status === 'approved') {
       await this.usersService.update(application.userId, {
@@ -78,6 +93,15 @@ export class InstructorApplicationsService {
       });
     }
 
-    return application;
+    this.eventEmitter.emit(`application.${dto.status}`, {
+      applicationId: reviewedApplication.id,
+      userId: application.userId,
+      userEmail: application.user.email,
+      userName: application.user.username || application.user.email,
+      locale: application.locale || 'en',
+      adminNote: application.adminNote,
+    });
+
+    return reviewedApplication;
   }
 }

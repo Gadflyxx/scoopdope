@@ -98,6 +98,34 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
     setImmediate(() => this.processQueue());
   }
 
+  async sendApplicationReceived(data: {
+    userEmail: string;
+    userName: string;
+    locale?: string;
+  }): Promise<void> {
+    const template = emailTemplates.applicationReceived(data);
+    await this.enqueue(data.userEmail, template.subject, template.html);
+  }
+
+  async sendApplicationApproved(data: {
+    userEmail: string;
+    userName: string;
+    locale?: string;
+  }): Promise<void> {
+    const template = emailTemplates.applicationApproved(data);
+    await this.enqueue(data.userEmail, template.subject, template.html);
+  }
+
+  async sendApplicationRejected(data: {
+    userEmail: string;
+    userName: string;
+    locale?: string;
+    adminNote?: string | null;
+  }): Promise<void> {
+    const template = emailTemplates.applicationRejected(data);
+    await this.enqueue(data.userEmail, template.subject, template.html);
+  }
+
   private async notifyPg() {
     if (!this.pgClient) return;
     try {

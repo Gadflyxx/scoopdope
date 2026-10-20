@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   Patch,
   Post,
@@ -38,9 +39,10 @@ export class InstructorApplicationsController {
   @ApiResponse({ status: 409, description: 'Pending application already exists' })
   apply(
     @Body() dto: CreateInstructorApplicationDto,
+    @Headers('accept-language') acceptLanguage: string | undefined,
     @Request() req: { user: { id: string } }
   ) {
-    return this.service.apply(req.user.id, dto);
+    return this.service.apply(req.user.id, dto, acceptLanguage);
   }
 
   @Get('me')

@@ -10,10 +10,12 @@ import { PushNotificationsService } from './push-notifications.service';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsEvents } from './notifications.events';
 import { NotificationsGateway } from './notifications.gateway';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Notification, PushSubscription, User]),
+    EmailModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({
