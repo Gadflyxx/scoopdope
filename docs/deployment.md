@@ -166,6 +166,7 @@ Monitor these metrics to detect issues early:
 
 ## Related Documentation
 
+- [Production Deployment Guide](./production-deployment-guide.md)
 - [Monitoring & Observability](./monitoring-observability.md)
 - [Environment Variables](./environment-variables.md)
 - [Deployment Runbook](./deployment-runbook.md)

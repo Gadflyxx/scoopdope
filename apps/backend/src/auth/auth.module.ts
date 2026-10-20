@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { UsersModule } from '../users/users.module';
 import { MailModule } from '../mail/mail.module';
 import { AuthService } from './auth.service';
@@ -22,6 +23,9 @@ import { ApiKeyStrategy } from './api-key.strategy';
 import { ApiKeyAuthGuard } from './api-key-auth.guard';
 import { AuditModule } from '../audit/audit.module';
 import { GoogleStrategy } from './google.strategy';
+import { SessionService } from './session.service';
+import { MicrosoftStrategy } from './microsoft.strategy';
+import { UserDeactivationModule } from '../user-deactivation/user-deactivation.module';
 
 @Module({
   imports: [
@@ -29,6 +33,14 @@ import { GoogleStrategy } from './google.strategy';
     MailModule,
     PassportModule,
     AuditModule,
+    UserDeactivationModule,
+    ThrottlerModule.forRoot([
+      {
+        name: 'login',
+        ttl: 60_000,
+        limit: 5,
+      },
+    ]),
     TypeOrmModule.forFeature([PasswordResetToken, RefreshToken, ApiKey]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -42,6 +54,7 @@ import { GoogleStrategy } from './google.strategy';
   providers: [
     AuthService,
     TokenService,
+    SessionService,
     MfaService,
     OAuthService,
     StellarAuthService,
@@ -52,8 +65,9 @@ import { GoogleStrategy } from './google.strategy';
     ApiKeyStrategy,
     ApiKeyAuthGuard,
     GoogleStrategy,
+    MicrosoftStrategy,
   ],
   controllers: [AuthController],
-  exports: [JwtAuthGuard, RolesGuard, ApiKeyAuthGuard, EncryptionService],
+  exports: [JwtModule, JwtAuthGuard, RolesGuard, ApiKeyAuthGuard, EncryptionService],
 })
 export class AuthModule {}

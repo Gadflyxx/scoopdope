@@ -1,5 +1,5 @@
 import {
-  Controller, Post, Get, Body, Param, Headers, RawBodyRequest,
+  Controller, Post, Get, Body, Param, Headers, RawBodyRequest, Query,
   Req, UseGuards, HttpCode,
 } from '@nestjs/common';
 import { Request } from 'express';
@@ -33,6 +33,23 @@ export class PaymentsController {
     @CurrentUser() user: { id: string },
   ) {
     return this.paymentsService.createPaymentIntent(dto.courseId, dto.currency, user.id, dto.couponCode);
+  }
+
+  @Get('preview')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Preview order details before payment' })
+  @ApiResponse({ status: 200, description: 'Order preview returned successfully' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Course not found' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  previewOrder(
+    @Query('courseId') courseId: string,
+    @Query('currency') currency: SupportedCurrency,
+    @Query('couponCode') couponCode?: string,
+  ) {
+    return this.paymentsService.previewOrder(courseId, currency ?? 'USD', couponCode);
   }
 
   @Get('price/:courseId')

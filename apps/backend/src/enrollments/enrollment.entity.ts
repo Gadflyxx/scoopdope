@@ -10,6 +10,12 @@ import {
 import { User } from '../users/user.entity';
 import { Course } from '../courses/course.entity';
 
+export enum EnrollmentStatus {
+  ACTIVE = 'active',
+  COMPLETED = 'completed',
+  DROPPED = 'dropped',
+}
+
 @Entity('enrollments')
 @Unique(['userId', 'courseId'])
 export class Enrollment {
@@ -19,6 +25,7 @@ export class Enrollment {
   @Column()
   userId: string;
 
+  // Why: enrollments belong to a user; deleting the user removes their course enrollments.
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user: User;
@@ -26,6 +33,7 @@ export class Enrollment {
   @Column()
   courseId: string;
 
+  // Why: if a course is deleted, all enrollments in it are removed to prevent orphan records.
   @ManyToOne(() => Course, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'courseId' })
   course: Course;
@@ -46,4 +54,8 @@ export class Enrollment {
    */
   @Column({ nullable: true, type: 'varchar', length: 64 })
   transactionHash: string | null;
+
+  /** Enrollment status: ACTIVE, COMPLETED, or DROPPED */
+  @Column({ type: 'enum', enum: EnrollmentStatus, default: EnrollmentStatus.ACTIVE })
+  status: EnrollmentStatus;
 }

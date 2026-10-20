@@ -345,3 +345,31 @@ fn claim_mining_rewards_returns_zero_with_no_liquidity() {
     let user = Address::generate(&client.env);
     assert_eq!(client.claim_mining_rewards(&user), 0);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 14. remove_liquidity emits a withdrawal event.
+// ─────────────────────────────────────────────────────────────────────────────
+#[test]
+fn remove_liquidity_publishes_withdrawal_event() {
+    let (env, client, _) = setup_pool();
+    let provider = Address::generate(&client.env);
+    client.add_liquidity(&provider, &2_000_000, &2_000_000, &0, &0);
+
+    let (out_a, out_b) = client.remove_liquidity(&provider, &1_000_000);
+    assert!(out_a > 0 && out_b > 0);
+
+    let events = env.events().all();
+    let mut found = false;
+    for e in events.iter() {
+        let topics = e.topics();
+        if topics.len() >= 2 {
+            let first = topics.get(0);
+            let second = topics.get(1);
+            if first == Ok(symbol_short!("rem_liq")) && second == Ok(symbol_short!("provider")) {
+                found = true;
+                break;
+            }
+        }
+    }
+    assert!(found, "Expected withdrawal event to be published");
+}

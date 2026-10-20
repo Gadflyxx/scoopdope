@@ -1,4 +1,4 @@
-name: Playwright E2E Tests
+name: CI
 
 on:
   push:
@@ -7,10 +7,142 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            apps/backend/package-lock.json
+            apps/frontend/package-lock.json
+
+      - name: Install backend deps
+        run: npm ci
+        working-directory: apps/backend
+
+      - name: Lint backend
+        run: npm run lint
+        working-directory: apps/backend
+
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: apps/frontend
+
+      - name: Lint frontend
+        run: npm run lint
+        working-directory: apps/frontend
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: Scoopdope_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    env:
+      NODE_ENV: test
+      DATABASE_HOST: localhost
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+      DATABASE_NAME: Scoopdope_test
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-test-secret
+      STELLAR_HORIZON_URL: https://horizon-testnet.stellar.org
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            apps/backend/package-lock.json
+            apps/frontend/package-lock.json
+
+      - name: Install backend deps
+        run: npm ci
+        working-directory: apps/backend
+
+      - name: Run backend tests
+        run: npm test
+        working-directory: apps/backend
+
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: apps/frontend
+
+      - name: Run frontend tests
+        run: npm test
+        working-directory: apps/frontend
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            apps/backend/package-lock.json
+            apps/frontend/package-lock.json
+
+      - name: Install backend deps
+        run: npm ci
+        working-directory: apps/backend
+
+      - name: Build backend
+        run: npm run build
+        working-directory: apps/backend
+
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: apps/frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: apps/frontend
+
   e2e:
     name: Playwright Tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: [lint, test, build]
 
     services:
       postgres:
@@ -82,10 +214,6 @@ jobs:
       # ── Frontend ─────────────────────────────────────────────────────────────
       - name: Install frontend deps
         run: npm ci
-        working-directory: apps/frontend
-
-      - name: Run unit tests
-        run: npm test
         working-directory: apps/frontend
 
       - name: Build frontend

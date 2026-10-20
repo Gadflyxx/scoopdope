@@ -26,6 +26,7 @@ export class Assignment {
   @Column()
   lessonId!: string;
 
+  // Why: deleting a lesson removes its assignments to prevent orphan assignments.
   @ManyToOne(() => Lesson, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'lessonId' })
   lesson!: Lesson;

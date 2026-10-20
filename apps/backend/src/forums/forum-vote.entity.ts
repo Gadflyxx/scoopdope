@@ -21,6 +21,7 @@ export class ForumVote {
   @Column()
   userId: string;
 
+  // Why: votes belong to a user; deleting the user removes their voting history.
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user: User;

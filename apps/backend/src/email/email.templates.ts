@@ -112,12 +112,17 @@ export const emailTemplates = {
         <p style="margin-top:40px;font-size:12px;color:#999">
           <a href="${data.unsubscribeUrl}">Unsubscribe</a>
         </p>
-      </div>`,
-  }),
+      </div>`;
+    
+    return {
+      subject: `You're enrolled in "${data.courseTitle}"`,
+      html,
+      text: htmlToPlainText(html),
+    };
+  },
 
-  completion: (data: { userName: string; courseTitle: string; credentialUrl: string; unsubscribeUrl: string }) => ({
-    subject: `Congratulations! You completed "${data.courseTitle}"`,
-    html: `
+  completion: (data: { userName: string; courseTitle: string; credentialUrl: string; unsubscribeUrl: string }): EmailTemplate => {
+    const html = `
       <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
         <h2>🎉 Course Completed!</h2>
         <p>Hi ${data.userName},</p>
@@ -126,12 +131,17 @@ export const emailTemplates = {
         <p style="margin-top:40px;font-size:12px;color:#999">
           <a href="${data.unsubscribeUrl}">Unsubscribe</a>
         </p>
-      </div>`,
-  }),
+      </div>`;
+    
+    return {
+      subject: `Congratulations! You completed "${data.courseTitle}"`,
+      html,
+      text: htmlToPlainText(html),
+    };
+  },
 
-  credentialIssued: (data: { userName: string; courseTitle: string; txHash: string; unsubscribeUrl: string }) => ({
-    subject: `Your blockchain credential for "${data.courseTitle}" is ready`,
-    html: `
+  credentialIssued: (data: { userName: string; courseTitle: string; txHash: string; unsubscribeUrl: string }): EmailTemplate => {
+    const html = `
       <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
         <h2>🏆 Credential Issued on Stellar</h2>
         <p>Hi ${data.userName},</p>
@@ -140,12 +150,17 @@ export const emailTemplates = {
         <p style="margin-top:40px;font-size:12px;color:#999">
           <a href="${data.unsubscribeUrl}">Unsubscribe</a>
         </p>
-      </div>`,
-  }),
+      </div>`;
+    
+    return {
+      subject: `Your blockchain credential for "${data.courseTitle}" is ready`,
+      html,
+      text: htmlToPlainText(html),
+    };
+  },
 
-  moduleUnlocked: (data: { userName: string; courseTitle: string; moduleTitle: string; courseUrl: string; unsubscribeUrl: string }) => ({
-    subject: `New content unlocked in "${data.courseTitle}"`,
-    html: `
+  moduleUnlocked: (data: { userName: string; courseTitle: string; moduleTitle: string; courseUrl: string; unsubscribeUrl: string }): EmailTemplate => {
+    const html = `
       <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
         <h2>🔓 New Module Available</h2>
         <p>Hi ${data.userName},</p>
@@ -155,12 +170,17 @@ export const emailTemplates = {
         <p style="margin-top:40px;font-size:12px;color:#999">
           <a href="${data.unsubscribeUrl}">Unsubscribe</a>
         </p>
-      </div>`,
-  }),
+      </div>`;
+    
+    return {
+      subject: `New content unlocked in "${data.courseTitle}"`,
+      html,
+      text: htmlToPlainText(html),
+    };
+  },
 
-  liveSessionReminder: (data: { userName: string; sessionTitle: string; date: string; timeLabel: string; joinUrl: string; sessionUrl: string }) => ({
-    subject: `⏰ Reminder: "${data.sessionTitle}" starts in ${data.timeLabel}`,
-    html: `
+  liveSessionReminder: (data: { userName: string; sessionTitle: string; date: string; timeLabel: string; joinUrl: string; sessionUrl: string }): EmailTemplate => {
+    const html = `
       <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
         <h2>⏰ Session starting in ${data.timeLabel}</h2>
         <p>Hi ${data.userName},</p>
@@ -170,12 +190,17 @@ export const emailTemplates = {
           ${data.joinUrl ? `<li><strong>Join:</strong> <a href="${data.joinUrl}">${data.joinUrl}</a></li>` : ''}
         </ul>
         <a href="${data.joinUrl || data.sessionUrl}" style="background:#059669;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">Join Now</a>
-      </div>`,
-  }),
+      </div>`;
+    
+    return {
+      subject: `⏰ Reminder: "${data.sessionTitle}" starts in ${data.timeLabel}`,
+      html,
+      text: htmlToPlainText(html),
+    };
+  },
 
-  calendarInvite: (data: { userName: string; sessionTitle: string; date: string; duration: number; joinUrl?: string; sessionUrl: string }) => ({
-    subject: `📅 Live Session: ${data.sessionTitle}`,
-    html: `
+  calendarInvite: (data: { userName: string; sessionTitle: string; date: string; duration: number; joinUrl?: string; sessionUrl: string }): EmailTemplate => {
+    const html = `
       <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
         <h2>📅 You're invited to a live session</h2>
         <p>Hi ${data.userName},</p>
@@ -187,6 +212,12 @@ export const emailTemplates = {
         </ul>
         <p>Add to your calendar using the attached .ics file.</p>
         <a href="${data.sessionUrl}" style="background:#4F46E5;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">View Session</a>
-      </div>`,
-  }),
+      </div>`;
+    
+    return {
+      subject: `📅 Live Session: ${data.sessionTitle}`,
+      html,
+      text: htmlToPlainText(html),
+    };
+  },
 };

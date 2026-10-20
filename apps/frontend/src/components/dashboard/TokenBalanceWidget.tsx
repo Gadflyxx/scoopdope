@@ -4,6 +4,7 @@ import useSWR from 'swr';
 import { RefreshCw, Coins, AlertTriangle, WalletMinimal } from 'lucide-react';
 import { useWalletStore } from '@/store/walletStore';
 import { fetchBstBalance } from '@/lib/walletApi';
+import { formatStellarAmount } from '@/lib/stellar';
 import { Card } from '@/components/ui/Card';
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -113,13 +114,9 @@ export function TokenBalanceWidget({
   if (isLoading && balance === undefined) return <TokenBalanceSkeleton />;
   if (error && balance === undefined) return <ErrorState onRetry={() => mutate()} />;
 
-  // Format: strip trailing zeros from decimal, e.g. "10.0000000" → "10"
-  const formatted = balance
-    ? parseFloat(balance).toLocaleString(undefined, {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 7,
-      })
-    : '0';
+  // Convert raw stroop integer → human-readable amount with 7 decimal places.
+  // e.g. "10000000" → "1.0000000"  |  "0" / undefined → "0.0000000"
+  const formatted = formatStellarAmount(balance ?? '0');
 
   const isRefreshing = isLoading && balance !== undefined;
 

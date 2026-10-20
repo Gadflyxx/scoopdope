@@ -22,6 +22,7 @@ export class AssignmentSubmission {
   @Column()
   assignmentId!: string;
 
+  // Why: submissions only exist in context of an assignment; deleting the assignment removes all its submissions.
   @ManyToOne(() => Assignment, (assignment) => assignment.submissions, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'assignmentId' })
   assignment!: Assignment;
@@ -29,6 +30,7 @@ export class AssignmentSubmission {
   @Column()
   userId!: string;
 
+  // Why: removes a student's submission records on account deletion (GDPR-compliant).
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user!: User;

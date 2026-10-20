@@ -27,7 +27,7 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
     private config: ConfigService,
   ) {}
 
-  async onModuleInit() {
+  onModuleInit() {
     this.transporter = nodemailer.createTransport({
       host: this.config.get<string>('mail.host'),
       port: this.config.get<number>('mail.port'),
@@ -36,7 +36,7 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
     });
 
     // Set up PostgreSQL LISTEN/NOTIFY for instant queue processing
-    await this.setupPgListener();
+    void this.setupPgListener();
 
     // Safety fallback — process any missed notifications every 60s
     this.safetyTimer = setInterval(() => this.processQueue(), 60_000);
@@ -185,6 +185,36 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
 
   // --- Event listeners ---
 
+  @OnEvent('user.registered')
+  async onUserRegistered(payload: { userId: string; userEmail: string; userName: string; verificationToken: string }) {
+    const verificationUrl = `${this.config.get('frontend.url')}/auth/verify?token=${payload.verificationToken}`;
+    const logoUrl = this.config.get<string>('email.logoUrl');
+    
+    const tpl = emailTemplates.welcome({
+      userName: payload.userName,
+      verificationUrl,
+      logo: logoUrl,
+    });
+    
+    await this.enqueue(payload.userEmail, tpl.subject, tpl.html);
+  }
+
+  @OnEvent('password.reset.requested')
+  async onPasswordResetRequested(payload: { userId: string; userEmail: string; userName: string; resetToken: string; expiresIn?: string }) {
+    const resetUrl = `${this.config.get('frontend.url')}/auth/reset-password?token=${payload.resetToken}`;
+    const logoUrl = this.config.get<string>('email.logoUrl');
+    const expiresIn = payload.expiresIn || '1 hour';
+    
+    const tpl = emailTemplates.passwordReset({
+      userName: payload.userName,
+      resetUrl,
+      expiresIn,
+      logo: logoUrl,
+    });
+    
+    await this.enqueue(payload.userEmail, tpl.subject, tpl.html);
+  }
+
   @OnEvent('enrollment.created')
   async onEnrollment(payload: { userId: string; courseId: string; userEmail: string; userName: string; courseTitle: string }) {
     const prefs = await this.getOrCreatePrefs(payload.userId);
@@ -223,6 +253,22 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
       courseTitle: payload.courseTitle,
       txHash: payload.txHash,
       unsubscribeUrl: this.unsubscribeUrl(prefs.unsubscribeToken),
+    });
+    await this.enqueue(payload.userEmail, tpl.subject, tpl.html);
+  }
+
+  @OnEvent('certificate.issued')
+  async onCertificateIssued(payload: { userId: string; userEmail: string; userName: string; courseTitle: string; certificateId: string; txHash: string }) {
+    const prefs = await this.getOrCreatePrefs(payload.userId);
+    if (prefs.unsubscribedAll || !prefs.credentialIssued) return;
+
+    const logoUrl = this.config.get<string>('email.logoUrl');
+    const tpl = emailTemplates.certificateIssued({
+      userName: payload.userName,
+      courseTitle: payload.courseTitle,
+      certificateUrl: `${this.config.get('frontend.url')}/certificates/${payload.certificateId}`,
+      txHash: payload.txHash,
+      logo: logoUrl,
     });
     await this.enqueue(payload.userEmail, tpl.subject, tpl.html);
   }

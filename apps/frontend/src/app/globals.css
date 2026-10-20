@@ -2,6 +2,24 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Theme tokens — toggled via the `dark` class set by next-themes */
+:root {
+  --background: #ffffff;
+  --foreground: #111827;
+  color-scheme: light;
+}
+
+.dark {
+  --background: #030712;
+  --foreground: #f3f4f6;
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
 @layer utilities {
   @keyframes shimmer {
     0% {
@@ -20,7 +38,7 @@
 /* Skip-to-content link — visually hidden until focused */
 .skip-link {
   position: absolute;
-  top: -9999px;
+  top: -40px;
   left: 0;
   z-index: 9999;
   padding: 0.5rem 1rem;
@@ -31,7 +49,7 @@
   text-decoration: none;
 }
 .skip-link:focus {
-  top: 0;
+  top: 6px;
 }
 
 /* Ensure focus rings are always visible */

@@ -10,26 +10,21 @@ async function main() {
 
   try {
     await AppDataSource.initialize();
-    console.log(`DataSource initialized. Running command: ${command}`);
 
     switch (command) {
       case 'run': {
         const migrations = await AppDataSource.runMigrations();
         if (migrations.length === 0) {
-          console.log('No pending migrations to run.');
+          process.stdout.write('No pending migrations to run.\n');
         } else {
-          console.log(`Ran ${migrations.length} migration(s):`);
-          migrations.forEach((m) => console.log(`  ✅ ${m.name}`));
+          process.stdout.write(`Ran ${migrations.length} migration(s):\n`);
+          migrations.forEach((m) => process.stdout.write(`  ✅ ${m.name}\n`));
         }
         break;
       }
       case 'revert': {
-        const reverted = await AppDataSource.undoLastMigration();
-        if (reverted) {
-          console.log(`Reverted migration: ${reverted.name}`);
-        } else {
-          console.log('No migrations to revert.');
-        }
+        await AppDataSource.undoLastMigration();
+        process.stdout.write('Reverted last migration.\n');
         break;
       }
       case 'show': {
@@ -40,20 +35,20 @@ async function main() {
           (m) => !executedMigrations.some((em: any) => em.name === m.name),
         );
 
-        console.log('\nExecuted migrations:');
+        process.stdout.write('\nExecuted migrations:\n');
         if (executedMigrations.length === 0) {
-          console.log('  (none)');
+          process.stdout.write('  (none)\n');
         } else {
           executedMigrations.forEach((em: any) =>
-            console.log(`  ✅ ${em.name} (${em.executedAt})`),
+            process.stdout.write(`  ✅ ${em.name} (${em.executedAt})\n`),
           );
         }
 
-        console.log('\nPending migrations:');
+        process.stdout.write('\nPending migrations:\n');
         if (pendingMigrations.length === 0) {
-          console.log('  (none)');
+          process.stdout.write('  (none)\n');
         } else {
-          pendingMigrations.forEach((pm) => console.log(`  ⏳ ${pm.name}`));
+          pendingMigrations.forEach((pm) => process.stdout.write(`  ⏳ ${pm.name}\n`));
         }
         break;
       }

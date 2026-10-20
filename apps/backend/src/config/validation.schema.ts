@@ -5,6 +5,7 @@ export const validationSchema = Joi.object({
   NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
   PORT: Joi.number().default(3000),
   LOG_FORMAT: Joi.string().valid('text', 'json').default('text'),
+  ENABLE_SWAGGER: Joi.boolean().default(false),
 
   // Database
   DATABASE_HOST: Joi.string().required(),
@@ -12,7 +13,9 @@ export const validationSchema = Joi.object({
   DATABASE_USER: Joi.string().required(),
   DATABASE_PASSWORD: Joi.string().required(),
   DATABASE_NAME: Joi.string().required(),
-  DATABASE_POOL_SIZE: Joi.number().min(1).max(200).default(50),
+  DATABASE_POOL_MIN: Joi.number().integer().min(1).max(20).default(5),
+  DATABASE_POOL_MAX: Joi.number().integer().min(5).max(100).default(20),
+  DATABASE_IDLE_TIMEOUT_MS: Joi.number().integer().min(1000).default(30000),
 
   // JWT
   JWT_SECRET: Joi.string().min(16).required(),
@@ -45,6 +48,11 @@ export const validationSchema = Joi.object({
   EMAIL_PASS: Joi.string().required(),
   EMAIL_FROM: Joi.string().default('"Scoopdope" <no-reply@Scoopdope.app>'),
   EMAIL_ENABLED: Joi.boolean().default(false),
+
+  // Batch queue
+  BATCH_JOB_MAX_RETRIES: Joi.number().default(3),
+  BATCH_ALERT_SLACK_WEBHOOK_URL: Joi.string().uri().allow('').default(''),
+  BATCH_ALERT_PAGERDUTY_ROUTING_KEY: Joi.string().allow('').default(''),
 
   // Frontend
   FRONTEND_URL: Joi.string().uri().default('http://localhost:3001'),
@@ -92,4 +100,8 @@ export const validationSchema = Joi.object({
 
   // Payouts
   PAYOUT_BATCH_SIZE: Joi.number().integer().min(1).default(500),
+
+  // Rewards
+  REWARD_MODULE_COMPLETION: Joi.number().integer().min(0).default(25),
+  REWARD_COURSE_COMPLETION: Joi.number().integer().min(0).default(100),
 });

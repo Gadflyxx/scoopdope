@@ -26,6 +26,7 @@ export class PeerReview {
   @Column()
   submissionId!: string;
 
+  // Why: peer reviews are dependent on a submission; deleting the submission removes reviews that have no context.
   @ManyToOne(() => AssignmentSubmission, (submission) => submission.peerReviews, {
     onDelete: 'CASCADE',
   })
@@ -35,6 +36,7 @@ export class PeerReview {
   @Column()
   reviewerId!: string;
 
+  // Why: removes the reviewer's review records when their account is deleted (GDPR-compliant).
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'reviewerId' })
   reviewer!: User;

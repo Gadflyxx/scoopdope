@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiResponse, ApiTags } 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { BatchQueueService } from './batch.queue.service';
 import { BatchService, BatchPayloadItem } from './batch.service';
 
 @ApiTags('batch')
@@ -11,7 +12,10 @@ import { BatchService, BatchPayloadItem } from './batch.service';
 @Roles('admin')
 @Controller('batch')
 export class BatchController {
-  constructor(private readonly batchService: BatchService) {}
+  constructor(
+    private readonly batchService: BatchService,
+    private readonly batchQueueService: BatchQueueService,
+  ) {}
 
   @Post('users')
   @ApiOperation({ summary: 'Bulk user operations (update, ban, unban, changeRole, delete)' })
@@ -35,7 +39,7 @@ export class BatchController {
     @Body('operations') operations: BatchPayloadItem[],
     @Request() req: { user: { id: string } },
   ) {
-    return this.batchService.createUserBatch(operations, req.user.id);
+    return this.batchQueueService.createUserBatch(operations, req.user.id);
   }
 
   @Post('courses')
@@ -60,7 +64,7 @@ export class BatchController {
     @Body('operations') operations: BatchPayloadItem[],
     @Request() req: { user: { id: string } },
   ) {
-    return this.batchService.createCourseBatch(operations, req.user.id);
+    return this.batchQueueService.createCourseBatch(operations, req.user.id);
   }
 
   @Get('jobs')

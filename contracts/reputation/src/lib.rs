@@ -191,6 +191,10 @@ impl ReputationContract {
         let mut reputation = Self::get_reputation_record(env.clone(), user.clone())
             .expect("User has no reputation record");
 
+        if reputation.score == 0 {
+            return;
+        }
+
         let old_score = reputation.score;
         Self::apply_decay_if_needed(&env, &mut reputation, current_ledger);
 
@@ -348,6 +352,40 @@ impl ReputationContract {
 mod tests {
     use super::*;
     use soroban_sdk::testutils::{Address as _, Env};
+
+    #[test]
+    fn test_apply_decay_skips_zero_reputation() {
+        let env = Env::default();
+        let admin = Address::random(&env);
+        env.mock_all_auths();
+
+        ReputationContract::initialize(env.clone(), admin.clone());
+
+        let user = Address::random(&env);
+        let mut reputation = ReputationRecord {
+            user: user.clone(),
+            score: 0,
+            level: 1,
+            last_updated: 100,
+            total_updates: 0,
+        };
+
+        // Simulate decay on a zero-reputation account
+        let current_ledger = 100 + (5000 * 1000);
+        ReputationContract::apply_decay_if_needed(&env, &mut reputation, current_ledger);
+        assert_eq!(reputation.score, 0, "Zero reputation should remain zero");
+
+        // Store the zero-reputation record and call apply_decay via public fn
+        env.storage()
+            .persistent()
+            .set(&DataKey::Reputation(user.clone()), &reputation);
+
+        ReputationContract::apply_decay(env.clone(), admin.clone(), user.clone());
+
+        // Score should still be zero and no decay event should change it
+        let updated = ReputationContract::get_reputation_record(env, user).unwrap();
+        assert_eq!(updated.score, 0, "apply_decay must skip zero-reputation accounts");
+    }
 
     #[test]
     fn test_decay_larger_than_score_yields_zero() {

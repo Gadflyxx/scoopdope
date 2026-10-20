@@ -17,6 +17,7 @@ export class Reminder {
   @Column()
   userId!: string;
 
+  // Why: reminders are personal to a user; deleting the user removes their reminders.
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user!: User;
@@ -24,6 +25,7 @@ export class Reminder {
   @Column()
   courseId!: string;
 
+  // Why: if the course is deleted, reminders for it are irrelevant and should be cleaned up.
   @ManyToOne(() => Course, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'courseId' })
   course!: Course;

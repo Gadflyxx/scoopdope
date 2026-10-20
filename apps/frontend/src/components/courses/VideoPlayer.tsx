@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { useVideoShortcuts } from '@/hooks/useVideoShortcuts';
+import { useStudyTimer } from '@/hooks/useStudyTimer';
 
 interface Props {
   src: string;
@@ -12,12 +13,31 @@ interface Props {
 
 const storageKey = (lessonId: string) => `vp-${lessonId}`;
 
+const SAVE_INTERVAL_MS = 10_000;
+
 export function VideoPlayer({ src, lessonId, courseId, onComplete }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [completed, setCompleted] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
-  useVideoShortcuts(videoRef);
+  const [isPlaying, setIsPlaying] = useState(false);
+  // Timestamp of the last localStorage write; -Infinity ensures the first save
+  // always goes through even if it happens before 10 s have elapsed.
+  const lastSavedAtRef = useRef<number>(-Infinity);
+  // Screen-reader announcement text surfaced via aria-live
+  const [announcement, setAnnouncement] = useState('');
+
+  // #881: Track study time while the video is playing
+  useStudyTimer({ courseId, lessonId, active: isPlaying });
+
+  const announce = useCallback((msg: string) => {
+    // Clear then set so repeated identical messages still trigger the live region
+    setAnnouncement('');
+    // Defer to let the DOM see the empty string first
+    requestAnimationFrame(() => setAnnouncement(msg));
+  }, []);
+
+  useVideoShortcuts(videoRef, announce);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -35,7 +55,14 @@ export function VideoPlayer({ src, lessonId, courseId, onComplete }: Props) {
   const handleTimeUpdate = () => {
     const v = videoRef.current;
     if (!v || completed) return;
-    localStorage.setItem(storageKey(lessonId), String(v.currentTime));
+
+    // Throttle localStorage writes to at most once every SAVE_INTERVAL_MS
+    const now = Date.now();
+    if (now - lastSavedAtRef.current >= SAVE_INTERVAL_MS) {
+      localStorage.setItem(storageKey(lessonId), String(v.currentTime));
+      lastSavedAtRef.current = now;
+    }
+
     if (v.duration && v.currentTime / v.duration >= 0.9) {
       setCompleted(true);
       fetch('/v1/progress/video', {
@@ -98,14 +125,33 @@ export function VideoPlayer({ src, lessonId, courseId, onComplete }: Props) {
   }
 
   return (
-    <video
-      ref={videoRef}
-      src={videoSrc}
-      controls
-      onTimeUpdate={handleTimeUpdate}
-      onError={handleError}
-      className="w-full rounded-lg bg-black dark:bg-black"
-    />
+    // tabIndex makes the container focusable so keyboard shortcuts activate
+    // when the user tabs to the player without clicking inside it first.
+    <div
+      className="relative w-full"
+      tabIndex={0}
+      aria-label="Video player. Use Space or K to play/pause, arrow keys or J/L to seek, up/down to adjust volume, M to mute, F for fullscreen."
+    >
+      {/* aria-live region — visually hidden, announces shortcut actions to screen readers */}
+      <span
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {announcement}
+      </span>
+
+      <video
+        ref={videoRef}
+        src={videoSrc}
+        controls
+        onTimeUpdate={handleTimeUpdate}
+        onError={handleError}
+        className="w-full rounded-lg bg-black dark:bg-black"
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onEnded={() => setIsPlaying(false)}
+      />
+    </div>
   );
 }
-

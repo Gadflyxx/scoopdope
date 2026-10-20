@@ -7,10 +7,10 @@ export function TopCoursesTable({ courses }: { courses: TopCourse[] }) {
       <table className="w-full text-sm" aria-label="Top courses by enrollment">
         <thead>
           <tr className="border-b border-gray-200 dark:border-gray-700">
-            <th className="text-left py-2 pr-4 font-medium text-gray-500 dark:text-gray-400">Course</th>
-            <th className="text-right py-2 px-4 font-medium text-gray-500 dark:text-gray-400">Enrollments</th>
-            <th className="text-right py-2 px-4 font-medium text-gray-500 dark:text-gray-400">Completions</th>
-            <th className="text-left py-2 pl-4 font-medium text-gray-500 dark:text-gray-400 w-32">Completion Rate</th>
+            <th scope="col" className="text-left py-2 pr-4 font-medium text-gray-500 dark:text-gray-400">Course</th>
+            <th scope="col" className="text-right py-2 px-4 font-medium text-gray-500 dark:text-gray-400">Enrollments</th>
+            <th scope="col" className="text-right py-2 px-4 font-medium text-gray-500 dark:text-gray-400">Completions</th>
+            <th scope="col" className="text-left py-2 pl-4 font-medium text-gray-500 dark:text-gray-400 w-32">Completion Rate</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100 dark:divide-gray-800">

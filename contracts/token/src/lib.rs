@@ -220,7 +220,7 @@ impl TokenContract {
         from.require_auth();
 
         let bal = Self::balance(env.clone(), from.clone());
-        assert!(bal >= amount, "Insufficient balance");
+        assert!(bal >= amount, "Insufficient balance: user wallet does not have enough BST tokens to complete this operation");
 
         Self::sub_balance(&env, &from, amount);
         Self::sub_supply(&env, amount);
@@ -255,7 +255,7 @@ impl TokenContract {
         assert!(allowed >= amount, "Insufficient allowance");
 
         let bal = Self::balance(env.clone(), from.clone());
-        assert!(bal >= amount, "Insufficient balance");
+        assert!(bal >= amount, "Insufficient balance: user wallet does not have enough BST tokens to complete this operation");
 
         // Deduct allowance
         env.storage().persistent().set(
@@ -293,11 +293,14 @@ impl TokenContract {
     // -------------------------------------------------------------------------
 
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+        if amount == 0 {
+            panic!("amount must be greater than zero");
+        }
         assert!(amount > 0, "Amount must be positive");
         from.require_auth();
 
         let bal = Self::balance(env.clone(), from.clone());
-        assert!(bal >= amount, "Insufficient balance");
+        assert!(bal >= amount, "Insufficient balance: user wallet does not have enough BST tokens to complete this operation");
 
         Self::sub_balance(&env, &from, amount);
         Self::add_balance(&env, &to, amount);
@@ -339,7 +342,7 @@ impl TokenContract {
         assert!(allowed >= amount, "Allowance exceeded");
 
         let bal = Self::balance(env.clone(), from.clone());
-        assert!(bal >= amount, "Insufficient balance");
+        assert!(bal >= amount, "Insufficient balance: user wallet does not have enough BST tokens to complete this operation");
 
         // Deduct allowance
         env.storage().persistent().set(
@@ -859,6 +862,16 @@ mod tests {
         let bob = Address::generate(&client.env);
         client.mint(&alice, &100);
         client.transfer(&alice, &bob, &200);
+    }
+
+    #[test]
+    #[should_panic(expected = "amount must be greater than zero")]
+    fn test_zero_transfer_panics() {
+        let (_, client, _) = setup();
+        let alice = Address::generate(&client.env);
+        let bob = Address::generate(&client.env);
+        client.mint(&alice, &100);
+        client.transfer(&alice, &bob, &0);
     }
 
     // ---- Approve / Allowance / transfer_from --------------------------------

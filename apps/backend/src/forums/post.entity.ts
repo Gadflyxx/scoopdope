@@ -19,6 +19,7 @@ export class Post {
   @Column()
   courseId: string;
 
+  // Why: forum posts belong to a course; deleting the course removes its entire forum.
   @ManyToOne(() => Course, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'courseId' })
   course: Course;
@@ -26,6 +27,7 @@ export class Post {
   @Column()
   userId: string;
 
+  // Why: removes a user's forum posts on account deletion; consider SET NULL to preserve course discussion content.
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user: User;

@@ -3,6 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  UpdateDateColumn,
   ManyToOne,
   OneToMany,
   JoinColumn,
@@ -18,6 +19,7 @@ export class Lesson {
   @Column()
   moduleId: string;
 
+  // Why: deleting a module removes all its lessons to prevent orphan content.
   @ManyToOne(() => CourseModule, (m) => m.lessons, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'moduleId' })
   module: CourseModule;
@@ -46,9 +48,15 @@ export class Lesson {
   @Column({ default: 0 })
   durationMinutes: number;
 
+  @Column({ type: 'jsonb', nullable: true })
+  learningObjectives?: string[];
+
   @OneToMany(() => Assignment, (assignment) => assignment.lesson)
   assignments: Assignment[];
 
   @CreateDateColumn()
   createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }

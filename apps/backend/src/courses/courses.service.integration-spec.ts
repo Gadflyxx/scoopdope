@@ -3,7 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CacheModule } from '@nestjs/cache-manager';
 import { DataSource } from 'typeorm';
 import { CoursesService } from './courses.service';
-import { Course } from './course.entity';
+import { Course, CourseStatus } from './course.entity';
+import { SearchService } from '../search/search.service';
 import { setupTestDatabase, teardownTestDatabase } from '../test/integration-test.setup';
 
 describe('CoursesService (Integration)', () => {
@@ -16,7 +17,16 @@ describe('CoursesService (Integration)', () => {
 
     module = await Test.createTestingModule({
       imports: [TypeOrmModule.forFeature([Course]), CacheModule.register()],
-      providers: [CoursesService],
+      providers: [
+        CoursesService,
+        {
+          provide: SearchService,
+          useValue: {
+            indexCourse: jest.fn(),
+            deleteFromIndex: jest.fn(),
+          },
+        },
+      ],
     })
       .overrideProvider('DataSource')
       .useValue(dataSource)
@@ -59,6 +69,7 @@ describe('CoursesService (Integration)', () => {
         description: 'Desc 1',
         level: 'beginner',
         isPublished: true,
+        status: CourseStatus.PUBLISHED,
       });
 
       await service.create({
@@ -66,6 +77,7 @@ describe('CoursesService (Integration)', () => {
         description: 'Desc 2',
         level: 'intermediate',
         isPublished: false,
+        status: CourseStatus.DRAFT,
       });
 
       const result = await service.findAll();
@@ -81,6 +93,7 @@ describe('CoursesService (Integration)', () => {
         description: 'Learn Stellar',
         level: 'beginner',
         isPublished: true,
+        status: CourseStatus.PUBLISHED,
       });
 
       await service.create({
@@ -88,6 +101,7 @@ describe('CoursesService (Integration)', () => {
         description: 'Learn Solana',
         level: 'beginner',
         isPublished: true,
+        status: CourseStatus.PUBLISHED,
       });
 
       const result = await service.findAll({ search: 'Stellar' });
@@ -102,6 +116,7 @@ describe('CoursesService (Integration)', () => {
         description: 'Desc',
         level: 'beginner',
         isPublished: true,
+        status: CourseStatus.PUBLISHED,
       });
 
       await service.create({
@@ -109,6 +124,7 @@ describe('CoursesService (Integration)', () => {
         description: 'Desc',
         level: 'advanced',
         isPublished: true,
+        status: CourseStatus.PUBLISHED,
       });
 
       const result = await service.findAll({ level: 'beginner' });
@@ -154,6 +170,25 @@ describe('CoursesService (Integration)', () => {
 
       expect(updated.title).toBe('Updated Title');
       expect(updated.description).toBe('Original Desc');
+    });
+  });
+
+  describe('publishNow', () => {
+    it('should set publishedAt when publishing a course', async () => {
+      const created = await service.create({
+        title: 'To Publish',
+        description: 'Desc',
+        level: 'beginner',
+        isPublished: false,
+        status: CourseStatus.DRAFT,
+      });
+
+      const published = await service.publishNow(created.id);
+
+      expect(published.status).toBe(CourseStatus.PUBLISHED);
+      expect(published.isPublished).toBe(true);
+      expect(published.publishedAt).toBeDefined();
+      expect(published.publishedAt).toBeInstanceOf(Date);
     });
   });
 

@@ -36,6 +36,7 @@ export class NotificationsEvents {
     await this.notificationsService.onCredentialIssued(payload.userId, payload.courseName);
   }
 
+  @OnEvent('course.completed')
   @OnEvent('progress.completed')
   async handleProgressCompleted(payload: { userId: string; courseName: string }) {
     await this.notificationsService.onProgressCompleted(payload.userId, payload.courseName);

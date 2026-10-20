@@ -5,11 +5,13 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
+  Unique,
 } from 'typeorm';
 import { User } from '../users/user.entity';
 import { Course } from '../courses/course.entity';
 
 @Entity('certificates')
+@Unique(['userId', 'courseId'])
 export class Certificate {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -17,6 +19,7 @@ export class Certificate {
   @Column()
   userId!: string;
 
+  // Why: certificates belong to a user; deleting the user removes them (consider SET NULL to preserve on-chain Stellar records).
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user!: User;
@@ -24,6 +27,7 @@ export class Certificate {
   @Column()
   courseId!: string;
 
+  // Why: if a course is deleted, its issued certificates are removed (consider SET NULL to preserve verifiable credential history).
   @ManyToOne(() => Course, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'courseId' })
   course!: Course;
@@ -42,6 +46,9 @@ export class Certificate {
 
   @Column({ nullable: true })
   pdfUrl!: string;
+
+  @Column({ nullable: true, type: 'timestamptz' })
+  revokedAt: Date | null;
 
   @CreateDateColumn()
   issuedAt!: Date;

@@ -19,6 +19,7 @@ export class Review {
   @Column()
   userId: string;
 
+  // Why: reviews belong to a user; deleting the user removes their reviews (GDPR-compliant).
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user: User;
@@ -26,6 +27,7 @@ export class Review {
   @Column()
   courseId: string;
 
+  // Why: if a course is deleted, reviews about it are removed to prevent orphan reviews.
   @ManyToOne(() => Course, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'courseId' })
   course: Course;

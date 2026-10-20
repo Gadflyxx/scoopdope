@@ -530,4 +530,199 @@ describe('SubscriptionsService', () => {
       expect(stripeInstance.checkout.sessions.create).not.toHaveBeenCalled();
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // renewSubscription — renewal date calculation
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('renewSubscription — renewal date calculation', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      const fixedTime = new Date('2025-06-15T10:00:00Z');
+      jest.setSystemTime(fixedTime);
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('throws NotFoundException when user does not exist', async () => {
+      userRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.renewSubscription('no-such-user')).rejects.toThrow(
+        NotFoundException,
+      );
+
+      expect(userRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when subscription tier is FREE', async () => {
+      userRepo.findOne.mockResolvedValue(makeUser({ subscriptionTier: SubscriptionTier.FREE }));
+
+      await expect(service.renewSubscription(USER_ID)).rejects.toThrow(BadRequestException);
+
+      expect(userRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('extends monthly renewal by 30 days from current expiresAt when active', async () => {
+      const currentExpiry = new Date('2025-07-15T10:00:00Z'); // 30 days in future
+      userRepo.findOne.mockResolvedValue(
+        makeUser({
+          subscriptionTier: SubscriptionTier.PRO,
+          subscriptionExpiresAt: currentExpiry,
+        }),
+      );
+
+      const result = await service.renewSubscription(USER_ID);
+
+      const expectedExpiry = new Date('2025-08-14T10:00:00Z'); // 30 days after current expiry
+      expect(result.newExpiresAt.getTime()).toBe(expectedExpiry.getTime());
+      expect(userRepo.update).toHaveBeenCalledWith(USER_ID, {
+        subscriptionExpiresAt: expectedExpiry,
+      });
+    });
+
+    it('extends annual renewal by 365 days from current expiresAt when active', async () => {
+      const currentExpiry = new Date('2026-06-15T10:00:00Z'); // 365 days in future
+      userRepo.findOne.mockResolvedValue(
+        makeUser({
+          subscriptionTier: SubscriptionTier.ENTERPRISE,
+          subscriptionExpiresAt: currentExpiry,
+        }),
+      );
+
+      const result = await service.renewSubscription(USER_ID);
+
+      // ENTERPRISE tier uses 30 day default, so should add 30 days
+      const expectedExpiry = new Date('2026-07-15T10:00:00Z');
+      expect(result.newExpiresAt.getTime()).toBe(expectedExpiry.getTime());
+    });
+
+    it('renews from now when subscription is already expired', async () => {
+      const expiredDate = new Date('2025-05-15T10:00:00Z'); // 31 days in the past
+      userRepo.findOne.mockResolvedValue(
+        makeUser({
+          subscriptionTier: SubscriptionTier.PRO,
+          subscriptionExpiresAt: expiredDate,
+        }),
+      );
+
+      const result = await service.renewSubscription(USER_ID);
+
+      const fixedNow = new Date('2025-06-15T10:00:00Z');
+      const expectedExpiry = new Date(fixedNow.getTime() + 30 * 24 * 60 * 60 * 1000);
+      expect(result.newExpiresAt.getTime()).toBe(expectedExpiry.getTime());
+      expect(userRepo.update).toHaveBeenCalledWith(USER_ID, {
+        subscriptionExpiresAt: expectedExpiry,
+      });
+    });
+
+    it('renews from now when expiresAt is null', async () => {
+      userRepo.findOne.mockResolvedValue(
+        makeUser({
+          subscriptionTier: SubscriptionTier.PRO,
+          subscriptionExpiresAt: null,
+        }),
+      );
+
+      const result = await service.renewSubscription(USER_ID);
+
+      const fixedNow = new Date('2025-06-15T10:00:00Z');
+      const expectedExpiry = new Date(fixedNow.getTime() + 30 * 24 * 60 * 60 * 1000);
+      expect(result.newExpiresAt.getTime()).toBe(expectedExpiry.getTime());
+    });
+
+    it('correctly calculates 30-day renewal for monthly (PRO) plans', async () => {
+      const currentExpiry = new Date('2025-07-01T14:30:00Z');
+      userRepo.findOne.mockResolvedValue(
+        makeUser({
+          subscriptionTier: SubscriptionTier.PRO,
+          subscriptionExpiresAt: currentExpiry,
+        }),
+      );
+
+      const result = await service.renewSubscription(USER_ID);
+
+      const expected30DaysLater = new Date('2025-07-31T14:30:00Z');
+      expect(result.newExpiresAt.getTime()).toBe(expected30DaysLater.getTime());
+    });
+
+    it('persists the renewal to the database', async () => {
+      const currentExpiry = new Date('2025-07-15T10:00:00Z');
+      userRepo.findOne.mockResolvedValue(
+        makeUser({
+          subscriptionTier: SubscriptionTier.PRO,
+          subscriptionExpiresAt: currentExpiry,
+        }),
+      );
+
+      await service.renewSubscription(USER_ID);
+
+      expect(userRepo.update).toHaveBeenCalledTimes(1);
+      expect(userRepo.update).toHaveBeenCalledWith(
+        USER_ID,
+        expect.objectContaining({
+          subscriptionExpiresAt: expect.any(Date),
+        }),
+      );
+    });
+
+    it('handles renewal of trial-to-paid conversion (expiresAt existed as future date)', async () => {
+      // Simulate a trial that's about to expire, then upgrade to PRO
+      const trialExpiry = new Date('2025-06-20T10:00:00Z'); // 5 days from now
+      userRepo.findOne.mockResolvedValue(
+        makeUser({
+          subscriptionTier: SubscriptionTier.PRO, // upgraded from trial
+          subscriptionExpiresAt: trialExpiry,
+        }),
+      );
+
+      const result = await service.renewSubscription(USER_ID);
+
+      // Should extend from trial expiry, not from now
+      const expectedExpiry = new Date('2025-07-20T10:00:00Z');
+      expect(result.newExpiresAt.getTime()).toBe(expectedExpiry.getTime());
+    });
+
+    it('correctly handles edge case of renewal exactly at subscription end', async () => {
+      const currentExpiry = new Date('2025-06-15T10:00:00Z'); // exactly now
+      userRepo.findOne.mockResolvedValue(
+        makeUser({
+          subscriptionTier: SubscriptionTier.PRO,
+          subscriptionExpiresAt: currentExpiry,
+        }),
+      );
+
+      const result = await service.renewSubscription(USER_ID);
+
+      // Should treat as active (not past) and extend from current expiry
+      const expectedExpiry = new Date('2025-07-15T10:00:00Z');
+      expect(result.newExpiresAt.getTime()).toBe(expectedExpiry.getTime());
+    });
+
+    it('supports multiple consecutive renewals', async () => {
+      const user1stRenewal = makeUser({
+        subscriptionTier: SubscriptionTier.PRO,
+        subscriptionExpiresAt: new Date('2025-07-15T10:00:00Z'),
+      });
+      userRepo.findOne.mockResolvedValue(user1stRenewal);
+
+      const result1 = await service.renewSubscription(USER_ID);
+
+      // Simulate second renewal 1 month later
+      jest.advanceTimersByTime(31 * 24 * 60 * 60 * 1000);
+      const user2ndRenewal = makeUser({
+        subscriptionTier: SubscriptionTier.PRO,
+        subscriptionExpiresAt: result1.newExpiresAt,
+      });
+      userRepo.findOne.mockResolvedValue(user2ndRenewal);
+
+      const result2 = await service.renewSubscription(USER_ID);
+
+      // Each renewal should add 30 days
+      const diff = result2.newExpiresAt.getTime() - result1.newExpiresAt.getTime();
+      const expectedDiff = 30 * 24 * 60 * 60 * 1000;
+      expect(diff).toBe(expectedDiff);
+    });
+  });
 });

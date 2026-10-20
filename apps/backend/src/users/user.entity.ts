@@ -1,9 +1,29 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, OneToMany } from 'typeorm';
+import { Reward } from '../rewards/reward.entity';
 
 export enum SubscriptionTier {
   FREE = 'free',
+  BASIC = 'basic',
+  PREMIUM = 'premium',
   PRO = 'pro',
-  ENTERPRISE = 'enterprise',
+}
+
+export enum UserRole {
+  STUDENT = 'student',
+  INSTRUCTOR = 'instructor',
+  ADMIN = 'admin',
+}
+
+export enum Role {
+  ADMIN = 'admin',
+  INSTRUCTOR = 'instructor',
+  STUDENT = 'student',
+}
+
+export enum UserStatus {
+  ACTIVE = 'active',
+  SUSPENDED = 'suspended',
+  DEACTIVATED = 'deactivated',
 }
 
 @Entity('users')
@@ -14,29 +34,26 @@ export class User {
   @Column({ unique: true })
   email: string;
 
-  @Column({ unique: true, nullable: true })
+  @Column()
   username: string;
 
   @Column()
   passwordHash: string;
 
-  @Column({ nullable: true })
-  avatar: string;
+  @Column({ type: 'enum', enum: UserRole, default: UserRole.STUDENT })
+  role: UserRole;
+
+  @Column({ type: 'enum', enum: SubscriptionTier, default: SubscriptionTier.FREE })
+  subscriptionTier: SubscriptionTier;
 
   @Column({ nullable: true, type: 'text' })
-  bio: string;
+  bio: string | null;
 
   @Column({ nullable: true })
-  stellarPublicKey: string;
-
-  @Column({ default: 'student' })
-  role: string;
+  avatarUrl: string | null;
 
   @Column({ default: false })
-  isBanned: boolean;
-
-  @Column({ default: false })
-  isVerified: boolean;
+  isEmailVerified: boolean;
 
   @Column({ nullable: true })
   deletedAt: Date;
@@ -67,6 +84,9 @@ export class User {
 
   @Column({ default: 0 })
   longestStreak: number;
+
+  @Column({ default: false })
+  leaderboardOptOut: boolean;
 
   @Column({ nullable: true, type: 'datetime' })
   lastActivityAt: Date | null;
@@ -102,6 +122,13 @@ export class User {
     tokenRewards: boolean;
     pushEnabled: boolean;
   };
+  lastLogin: Date | null;
+
+  @Column({ default: 0 })
+  failedLoginAttempts: number;
+
+  @Column({ nullable: true, type: 'timestamp' })
+  lockoutUntil: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;

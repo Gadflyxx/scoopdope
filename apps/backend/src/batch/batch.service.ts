@@ -30,21 +30,23 @@ export class BatchService implements OnModuleInit {
     private coursesService: CoursesService,
   ) {}
 
-  async onModuleInit() {
-    await this.recoverStuckJobs();
+  onModuleInit() {
+    void this.recoverStuckJobs().catch((error: unknown) => {
+      this.logger.error(
+        'Failed to recover stuck batch jobs',
+        error instanceof Error ? error.stack : String(error),
+      );
+    });
   }
 
   private async recoverStuckJobs(): Promise<void> {
     const cutoff = new Date(Date.now() - STUCK_TIMEOUT_MS);
-    const stuck = await this.jobRepo.find({
-      where: { status: 'processing', startedAt: LessThan(cutoff) },
-    });
-    for (const job of stuck) {
-      this.logger.warn(`Recovering stuck batch job ${job.id} (type=${job.type})`);
-      await this.jobRepo.update(job.id, {
-        status: 'pending',
-        startedAt: null,
-      });
+    const result = await this.jobRepo.update(
+      { status: 'processing', startedAt: LessThan(cutoff) },
+      { status: 'pending', startedAt: null },
+    );
+    if (result.affected) {
+      this.logger.warn(`Recovered ${result.affected} stuck batch job(s)`);
     }
   }
 
@@ -75,7 +77,14 @@ export class BatchService implements OnModuleInit {
     return this.jobRepo.find({ where, order: { createdAt: 'DESC' }, take: 100 });
   }
 
-  private async processUserBatch(jobId: string): Promise<void> {
+  async markJobFailed(jobId: string, failedReason: string): Promise<void> {
+    await this.jobRepo.update(jobId, {
+      status: 'failed',
+      errors: [{ error: failedReason }],
+    });
+  }
+
+  async processUserBatch(jobId: string): Promise<void> {
     const job = await this.jobRepo.findOne({ where: { id: jobId } });
     if (!job) return;
 
@@ -117,7 +126,7 @@ export class BatchService implements OnModuleInit {
       await this.jobRepo.update(jobId, {
         processedItems: results.length,
         failedItems: errors.length,
-      } as Partial<BatchJob>);
+      } as any);
 
       if (index < job.payload.length) {
         await new Promise<void>((resolve) => setImmediate(resolve));
@@ -130,14 +139,14 @@ export class BatchService implements OnModuleInit {
           processedItems: results.length,
           failedItems: errors.length,
           startedAt: null,
-        } as Partial<BatchJob>);
+        } as any);
       }
     };
 
     await processChunk();
   }
 
-  private async processCourseBatch(jobId: string): Promise<void> {
+  async processCourseBatch(jobId: string): Promise<void> {
     const job = await this.jobRepo.findOne({ where: { id: jobId } });
     if (!job) return;
 
@@ -175,7 +184,7 @@ export class BatchService implements OnModuleInit {
       await this.jobRepo.update(jobId, {
         processedItems: results.length,
         failedItems: errors.length,
-      } as Partial<BatchJob>);
+      } as any);
 
       if (index < job.payload.length) {
         await new Promise<void>((resolve) => setImmediate(resolve));
@@ -188,7 +197,7 @@ export class BatchService implements OnModuleInit {
           processedItems: results.length,
           failedItems: errors.length,
           startedAt: null,
-        } as Partial<BatchJob>);
+        } as any);
       }
     };
 

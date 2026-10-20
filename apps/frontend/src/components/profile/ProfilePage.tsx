@@ -12,6 +12,9 @@ import { StreakWidget } from '@/components/ui/StreakWidget';
 import { CreditCard, Star } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import WalletSection from './WalletSection';
+
+const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+const ALLOWED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 import ReferralSection from './ReferralSection';
 import { KycVerification } from '@/components/profile/KycVerification';
 import { TwoFactorAuthentication } from '@/components/profile/TwoFactorAuthentication';
@@ -19,7 +22,7 @@ import { NotificationSettings } from '@/components/profile/NotificationSettings'
 import { GdprSection } from '@/components/profile/GdprSection';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useBookmarksStore } from '@/store/bookmarks.store';
-import { computeAchievements } from '@/app/profile/computeAchievements';
+import BadgeDisplay, { type BadgeProgress } from './BadgeDisplay';
 
 interface User {
   id: string;
@@ -36,6 +39,7 @@ interface User {
   subscriptionTier?: 'free' | 'pro' | 'enterprise';
   subscriptionExpiresAt?: string;
   mfaEnabled?: boolean;
+  leaderboardOptOut?: boolean;
 }
 
 interface FormData {
@@ -53,8 +57,14 @@ export function ProfilePage() {
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [badges, setBadges] = useState<any[]>([]);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [badges, setBadges] = useState<BadgeProgress[]>([]);
+  const [leaderboardOptOut, setLeaderboardOptOut] = useState(false);
+  const [savingLeaderboardPreference, setSavingLeaderboardPreference] = useState(false);
   const savedTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const avatarObjectUrlRef = useRef<string | null>(null);
   const { bookmarks, fetchBookmarks } = useBookmarksStore();
 
   const handleMfaStatusChange = useCallback((enabled: boolean) => {
@@ -72,6 +82,7 @@ export function ProfilePage() {
         setError(null);
         const response = await api.get('/users/me');
         setUser(response.data);
+        setLeaderboardOptOut(Boolean(response.data.leaderboardOptOut));
         setForm({
           username: response.data.username,
           bio: response.data.bio ?? '',
@@ -88,37 +99,65 @@ export function ProfilePage() {
     fetchUser();
   }, [t]);
 
-  // Fetch badges and achievements when user changes
+  // Fetch persisted badges when user changes
   useEffect(() => {
     if (!user) return;
+    api.get('/v1/badges/me')
+      .then((response) => setBadges(response.data ?? []))
+      .catch(() => setBadges([]));
 
-    const creds = api.get(`/credentials/${user.id}`).then((r) => r.data).catch(() => []);
-    const progress = api.get(`/users/${user.id}/progress`).then((r) => r.data).catch(() => []);
-    const bst = user.stellarPublicKey
-      ? api
-          .get(`/stellar/balance/${user.stellarPublicKey}`)
-          .then((r) => {
-            const b = r.data.balances?.find((b: any) => b.asset_code === 'BST');
-            return parseFloat(b?.balance ?? '0');
-          })
-          .catch(() => 0)
-      : Promise.resolve(0);
-
-    Promise.all([creds, progress, bst]).then(([credentials, progressRecords, bstBalance]) => {
-      const credentialCount = Array.isArray(credentials) ? credentials.length : 0;
-      const input = { credentialCount, bstBalance: Number(bstBalance), progressRecords };
-      setBadges(computeAchievements(input));
-    });
+    api.get('/v1/badges/me').then((response) => setBadges(response.data ?? [])).catch(() => setBadges([]));
   }, [user]);
 
-  // Cleanup timeout on unmount
+  // Cleanup timeout and object URL on unmount
   useEffect(() => {
     return () => {
       if (savedTimeoutRef.current) {
         clearTimeout(savedTimeoutRef.current);
       }
+      if (avatarObjectUrlRef.current) {
+        URL.revokeObjectURL(avatarObjectUrlRef.current);
+      }
     };
   }, []);
+
+  const handleAvatarUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      // Revoke previous object URL to avoid memory leak
+      if (avatarObjectUrlRef.current) {
+        URL.revokeObjectURL(avatarObjectUrlRef.current);
+        avatarObjectUrlRef.current = null;
+      }
+
+      setAvatarError(null);
+
+      // Validate file type
+      if (!ALLOWED_AVATAR_TYPES.includes(file.type as typeof ALLOWED_AVATAR_TYPES[number])) {
+        setAvatarError('Invalid file type. Only JPEG, PNG, and WebP images are allowed.');
+        setAvatarPreview(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+
+      // Validate file size
+      if (file.size > MAX_AVATAR_SIZE_BYTES) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+        setAvatarError(`File is too large (${sizeMB} MB). Maximum size is 5 MB.`);
+        setAvatarPreview(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+
+      // Valid file — create preview with object URL
+      const objectUrl = URL.createObjectURL(file);
+      avatarObjectUrlRef.current = objectUrl;
+      setAvatarPreview(objectUrl);
+    },
+    []
+  );
 
   const handleSave = useCallback(
     async (e: React.FormEvent) => {
@@ -168,6 +207,18 @@ export function ProfilePage() {
 
   const onWalletUnlinked = useCallback(() => {
     setUser((prev: User | null) => (prev ? { ...prev, stellarPublicKey: undefined } : null));
+  }, []);
+
+  const handleLeaderboardPreference = useCallback(async (optOut: boolean) => {
+    setSavingLeaderboardPreference(true);
+    try {
+      await api.patch('/v1/leaderboards/preference', { optOut });
+      setLeaderboardOptOut(optOut);
+    } catch {
+      toast.error('Unable to update leaderboard preference');
+    } finally {
+      setSavingLeaderboardPreference(false);
+    }
   }, []);
 
   if (loading) {
@@ -348,23 +399,116 @@ export function ProfilePage() {
             </p>
           </div>
 
-          <div>
-            <label htmlFor="avatarUrl" className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-              {t('avatarUrl')}
+          {/* Avatar Upload */}
+          <div className="space-y-3">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              {t('avatarUrl', 'Avatar')}
             </label>
-            <input
-              id="avatarUrl"
-              type="url"
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={form.avatarUrl}
-              onChange={(e) => handleFormChange('avatarUrl', e.target.value)}
-              disabled={saving}
-              placeholder="https://example.com/avatar.jpg"
-              aria-describedby="avatar-hint"
-            />
-            <p id="avatar-hint" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {t('avatarUrlHint', 'Public URL to your avatar image')}
-            </p>
+
+            {/* Upload area */}
+            <div className="flex items-center gap-4">
+              {/* Preview */}
+              <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0">
+                {avatarPreview ? (
+                  <img
+                    src={avatarPreview}
+                    alt="Avatar preview"
+                    className="w-full h-full object-cover"
+                  />
+                ) : user.avatarUrl ? (
+                  <Image
+                    src={user.avatarUrl}
+                    alt={t('avatarAlt', { name: user.username })}
+                    width={80}
+                    height={80}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-2xl font-bold text-gray-400 select-none">
+                    {initial}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex-1 space-y-2">
+                <input
+                  ref={fileInputRef}
+                  id="avatar-upload"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleAvatarUpload}
+                  disabled={saving}
+                  className="hidden"
+                  aria-describedby="avatar-hint"
+                />
+                <label
+                  htmlFor="avatar-upload"
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors ${
+                    saving
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800 dark:text-gray-500'
+                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                  </svg>
+                  Upload Avatar
+                </label>
+                <p id="avatar-hint" className="text-xs text-gray-500 dark:text-gray-400">
+                  JPEG, PNG, or WebP. Max 5 MB.
+                </p>
+
+                {avatarPreview && !avatarError && (
+                  <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                    New avatar selected
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Inline validation error */}
+            {avatarError && (
+              <div
+                role="alert"
+                className="flex items-center gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 text-sm text-red-700 dark:text-red-300"
+              >
+                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+                {avatarError}
+              </div>
+            )}
+
+            {/* URL alternative */}
+            <details className="group">
+              <summary className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                Or use a URL instead
+              </summary>
+              <div className="mt-2">
+                <input
+                  id="avatarUrl"
+                  type="url"
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  value={form.avatarUrl}
+                  onChange={(e) => {
+                    handleFormChange('avatarUrl', e.target.value);
+                    // Revoke object URL and clear preview when switching to URL input
+                    if (avatarObjectUrlRef.current) {
+                      URL.revokeObjectURL(avatarObjectUrlRef.current);
+                      avatarObjectUrlRef.current = null;
+                    }
+                    setAvatarPreview(null);
+                    setAvatarError(null);
+                  }}
+                  disabled={saving}
+                  placeholder="https://example.com/avatar.jpg"
+                  aria-label={t('avatarUrl', 'Avatar URL')}
+                />
+              </div>
+            </details>
           </div>
 
           <div aria-live="polite" aria-atomic="true" className="sr-only">
@@ -388,8 +532,22 @@ export function ProfilePage() {
         {/* KYC Verification */}
         <KycVerification stellarPublicKey={user.stellarPublicKey} />
 
+        <section className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+          <label htmlFor="leaderboard-opt-out" className="flex items-center gap-3 text-sm text-gray-700 dark:text-gray-300">
+            <input
+              id="leaderboard-opt-out"
+              type="checkbox"
+              checked={leaderboardOptOut}
+              disabled={savingLeaderboardPreference}
+              onChange={(event) => handleLeaderboardPreference(event.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            Hide me from anonymous leaderboards
+          </label>
+        </section>
+
         {/* Achievements Section */}
-        {badges.length > 0 && <AchievementsSection badges={badges} />}
+        {badges.length > 0 && <BadgeDisplay badges={badges} />}
 
         {/* Notification Settings */}
         <NotificationSettings />
@@ -401,24 +559,5 @@ export function ProfilePage() {
   );
 }
 
-interface AchievementsSectionProps {
-  badges: any[];
-}
 
-function AchievementsSection({ badges }: AchievementsSectionProps) {
-  const t = useTranslations('profile');
 
-  return (
-    <section className="space-y-4">
-      <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('achievements', 'Achievements')}</h2>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {badges.map((badge, idx) => (
-          <div key={idx} className="flex flex-col items-center gap-2 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-            <div className="text-2xl">{badge.icon || '🏆'}</div>
-            <span className="text-sm font-medium text-center text-gray-900 dark:text-gray-100">{badge.title}</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
