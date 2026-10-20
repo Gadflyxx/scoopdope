@@ -4,6 +4,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import Stripe from 'stripe';
 import { User, SubscriptionTier } from '../users/user.entity';
+import { Payment } from '../payments/payment.entity';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class SubscriptionsService {
@@ -14,6 +16,9 @@ export class SubscriptionsService {
     private configService: ConfigService,
     @InjectRepository(User)
     private userRepo: Repository<User>,
+    @InjectRepository(Payment)
+    private paymentRepo: Repository<Payment>,
+    private mailService: MailService,
   ) {
     this.stripe = new Stripe(this.configService.get<string>('stripe.secretKey') || '', {
       apiVersion: '2025-01-27' as any,
@@ -68,8 +73,10 @@ export class SubscriptionsService {
         await this.handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session);
         break;
       case 'customer.subscription.updated':
-      case 'customer.subscription.deleted':
         await this.handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
+        break;
+      case 'customer.subscription.deleted':
+        await this.handleSubscriptionDeleted(event.data.object as Stripe.Subscription);
         break;
       default:
         this.logger.log(`Unhandled event type ${event.type}`);
@@ -111,6 +118,86 @@ export class SubscriptionsService {
         subscriptionTier: SubscriptionTier.FREE,
         subscriptionExpiresAt: null,
       });
+    }
+  }
+
+  private async handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+    const user = await this.userRepo.findOne({ where: { stripeSubscriptionId: subscription.id } });
+
+    if (!user) return;
+
+    await this.refundUnusedSubscriptionTime(user, subscription);
+    await this.userRepo.update(user.id, {
+      subscriptionTier: SubscriptionTier.FREE,
+      subscriptionExpiresAt: null,
+    });
+  }
+
+  private async refundUnusedSubscriptionTime(user: User, subscription: Stripe.Subscription) {
+    if (this.configService.get<boolean>('stripe.prorationEnabled') === false) return;
+
+    const periodStart = subscription.current_period_start;
+    const periodEnd = subscription.current_period_end;
+    const now = Math.floor(Date.now() / 1000);
+    const totalSeconds = periodEnd - periodStart;
+    const remainingSeconds = periodEnd - now;
+
+    if (!periodStart || !periodEnd || totalSeconds <= 0 || remainingSeconds <= 0) return;
+
+    const latestInvoiceId = typeof subscription.latest_invoice === 'string'
+      ? subscription.latest_invoice
+      : subscription.latest_invoice?.id;
+    if (!latestInvoiceId) return;
+
+    const invoice = await this.stripe.invoices.retrieve(latestInvoiceId);
+    const paymentIntentId = typeof invoice.payment_intent === 'string'
+      ? invoice.payment_intent
+      : invoice.payment_intent?.id;
+    const refundAmount = Math.round(invoice.amount_paid * Math.min(remainingSeconds, totalSeconds) / totalSeconds);
+
+    if (!paymentIntentId || invoice.amount_paid <= 0 || refundAmount <= 0) return;
+
+    const priorRefund = await this.paymentRepo.findOne({
+      where: { stripeSubscriptionId: subscription.id, transactionType: 'refund' },
+    });
+    if (priorRefund) return;
+
+    const refund = await this.stripe.refunds.create(
+      { payment_intent: paymentIntentId, amount: refundAmount },
+      { idempotencyKey: `subscription-proration-${subscription.id}` },
+    );
+
+    await this.paymentRepo.save(this.paymentRepo.create({
+      userId: user.id,
+      stripeSubscriptionId: subscription.id,
+      stripePaymentIntentId: paymentIntentId,
+      stripeRefundId: refund.id,
+      amount: refund.amount,
+      currency: refund.currency,
+      transactionType: 'refund',
+      status: refund.status ?? 'pending',
+    }));
+
+    const currency = refund.currency.toUpperCase();
+    const fractionDigits = new Intl.NumberFormat('en', {
+      style: 'currency',
+      currency,
+    }).resolvedOptions().maximumFractionDigits;
+    const formattedAmount = new Intl.NumberFormat('en', {
+      style: 'currency',
+      currency,
+    }).format(refund.amount / (10 ** fractionDigits));
+
+    try {
+      await this.mailService.sendEmail(
+        user.email,
+        'Your subscription refund is being processed',
+        `<p>Hi ${user.username},</p>
+         <p>Your subscription cancellation generated a prorated refund of <strong>${formattedAmount}</strong>.</p>
+         <p>Please allow 5-10 business days for the refund to appear on your original payment method.</p>`,
+      );
+    } catch (error) {
+      this.logger.error(`Failed to send refund email to user ${user.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

@@ -113,6 +113,7 @@ export default () => ({
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
     proPriceId: process.env.STRIPE_PRO_PRICE_ID || '',
     enterprisePriceId: process.env.STRIPE_ENTERPRISE_PRICE_ID || '',
+    prorationEnabled: process.env.STRIPE_SUBSCRIPTION_PRORATION_ENABLED !== 'false',
   },
 
   exchangeRate: {

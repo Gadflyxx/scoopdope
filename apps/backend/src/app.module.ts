@@ -14,6 +14,7 @@ import { Enrollment } from './enrollments/enrollment.entity';
 import { Certificate } from './certificates/certificate.entity';
 import { Bundle } from './bundles/bundle.entity';
 import { BundleCourse } from './bundles/bundle-course.entity';
+import { Payment } from './payments/payment.entity';
 
 // ── Modules ─────────────────────────────────────────────────────────────────────
 
@@ -97,7 +98,7 @@ export class GracefulShutdownService implements OnApplicationShutdown {
         username: configService.get('database.username'),
         password: configService.get('database.password'),
         database: configService.get('database.name'),
-        entities: [User, Course, Enrollment, Certificate, Bundle, BundleCourse],
+        entities: [User, Course, Enrollment, Certificate, Bundle, BundleCourse, Payment],
         synchronize: configService.get('environment') !== 'production',
         logging: configService.get('environment') !== 'production',
       }),
