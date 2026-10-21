@@ -134,4 +134,8 @@ export default () => ({
     privateKey: process.env.VAPID_PRIVATE_KEY || '',
     subject: process.env.VAPID_SUBJECT || 'mailto:admin@scoopdope.com',
   },
+
+  survey: {
+    pseudonymizationSecret: process.env.SURVEY_PSEUDONYMIZATION_SECRET || '',
+  },
 });

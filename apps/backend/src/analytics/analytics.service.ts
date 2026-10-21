@@ -5,6 +5,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { DistributedLockService } from '../common/distributed-lock.service';
+import { PseudonymizationService } from './pseudonymization.service';
 import { CourseAnalytics } from './course-analytics.entity';
 import { Enrollment } from '../enrollments/enrollment.entity';
 import { Progress } from '../progress/progress.entity';
@@ -56,6 +57,7 @@ export class AnalyticsService {
     @InjectRepository(Course) private courseRepo: Repository<Course>,
     @Inject(CACHE_MANAGER) private cache: Cache,
     private readonly distributedLockService: DistributedLockService,
+    private readonly pseudonymizationService: PseudonymizationService,
   ) {}
 
   async getAnalytics(courseId: string): Promise<CourseAnalytics> {
@@ -272,6 +274,39 @@ export class AnalyticsService {
 
     await this.cache.set(cacheKey, result, this.CACHE_TTL);
     return result;
+  }
+
+  /**
+   * Pseudonymize a survey export row. Replaces any raw `userId` with a
+   * deterministic `pseudoId` (HMAC-SHA256 of the userId) so that exported
+   * analytics cannot be correlated back to individuals.
+   */
+  pseudonymizeSurveyRow<T extends { userId?: string | null }>(
+    row: T,
+  ): Omit<T, 'userId'> & { pseudoId: string | null } {
+    const { userId, ...rest } = row;
+    return {
+      ...(rest as Omit<T, 'userId'>),
+      pseudoId: userId ? this.pseudonymizationService.pseudonymize(userId) : null,
+    };
+  }
+
+  /**
+   * Pseudonymize a batch of survey export rows, stripping raw `userId` values.
+   */
+  pseudonymizeSurveyRows<T extends { userId?: string | null }>(
+    rows: T[],
+  ): (Omit<T, 'userId'> & { pseudoId: string | null })[] {
+    return rows.map((row) => this.pseudonymizeSurveyRow(row));
+  }
+
+  /**
+   * Admin-only reverse lookup: resolve a `pseudoId` back to the originating
+   * `userId`. Returns null when no user matches the given pseudonym.
+   */
+  async resolvePseudoId(pseudoId: string): Promise<{ pseudoId: string; userId: string | null }> {
+    const userId = await this.pseudonymizationService.resolve(pseudoId);
+    return { pseudoId, userId };
   }
 
   /** Hourly: aggregate all courses */
