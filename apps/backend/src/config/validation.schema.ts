@@ -6,6 +6,8 @@ export const validationSchema = Joi.object({
   PORT: Joi.number().default(3000),
   LOG_FORMAT: Joi.string().valid('text', 'json').default('text'),
   ENABLE_SWAGGER: Joi.boolean().default(false),
+  SWAGGER_ENABLED: Joi.boolean().default(false),
+  SWAGGER_PASSWORD: Joi.string().allow('').optional(),
 
   // Database
   DATABASE_HOST: Joi.string().required(),

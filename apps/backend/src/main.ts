@@ -251,7 +251,47 @@ async function bootstrap() {
 
   app.enableCors();
 
+  // #1162: Swagger UI must not be publicly reachable in production. It is
+  // enabled by default outside production (local/staging) and can be opted into
+  // in production via SWAGGER_ENABLED=true, in which case /api/docs is gated
+  // behind HTTP Basic Auth using SWAGGER_PASSWORD.
+  const isProduction = nodeEnv === 'production';
+  const swaggerEnabledConfig = configService.get<boolean | string>('swagger.enabled');
+  const swaggerEnabled =
+    swaggerEnabledConfig === true || swaggerEnabledConfig === 'true';
+  const shouldExposeSwagger = !isProduction || swaggerEnabled;
+
   if (shouldExposeSwagger) {
+    if (isProduction) {
+      const swaggerPassword = configService.get<string>('swagger.password');
+      const swaggerUser = configService.get<string>('swagger.user') || 'admin';
+
+      app.use('/api/docs', (req: express.Request, res: express.Response, next: express.NextFunction) => {
+        if (!swaggerPassword) {
+          res.status(401).set('WWW-Authenticate', 'Basic realm="Swagger"').end();
+          return;
+        }
+
+        const header = req.headers.authorization || '';
+        const [scheme, encoded] = header.split(' ');
+        if (scheme !== 'Basic' || !encoded) {
+          res.status(401).set('WWW-Authenticate', 'Basic realm="Swagger"').end();
+          return;
+        }
+
+        const decoded = Buffer.from(encoded, 'base64').toString('utf8');
+        const separatorIndex = decoded.indexOf(':');
+        const user = separatorIndex >= 0 ? decoded.slice(0, separatorIndex) : '';
+        const password = separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : '';
+
+        if (user !== swaggerUser || password !== swaggerPassword) {
+          res.status(401).set('WWW-Authenticate', 'Basic realm="Swagger"').end();
+          return;
+        }
+
+        next();
+      });
+    }
     const config = new DocumentBuilder()
     .setTitle('scoopdope API')
     .setDescription(

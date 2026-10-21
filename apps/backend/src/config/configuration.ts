@@ -134,4 +134,9 @@ export default () => ({
     privateKey: process.env.VAPID_PRIVATE_KEY || '',
     subject: process.env.VAPID_SUBJECT || 'mailto:admin@scoopdope.com',
   },
+
+  swagger: {
+    enabled: process.env.SWAGGER_ENABLED === 'true',
+    password: process.env.SWAGGER_PASSWORD || '',
+  },
 });
