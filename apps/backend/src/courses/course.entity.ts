@@ -22,6 +22,12 @@ export enum CourseStatus {
   ARCHIVED = 'archived',
 }
 
+export enum CourseDifficulty {
+  BEGINNER = 'beginner',
+  INTERMEDIATE = 'intermediate',
+  ADVANCED = 'advanced',
+}
+
 @Entity('courses')
 export class Course {
   @PrimaryGeneratedColumn('uuid')
@@ -36,8 +42,16 @@ export class Course {
   @Column({ nullable: true })
   category: string;
 
+  /** @deprecated use difficultyLevel instead */
   @Column({ default: 'beginner' })
   level: string;
+
+  /**
+   * Canonical difficulty rating used for recommendation filtering.
+   * Kept separate from the deprecated `level` column for backwards compatibility.
+   */
+  @Column({ type: 'enum', enum: CourseDifficulty, default: CourseDifficulty.BEGINNER })
+  difficultyLevel: CourseDifficulty;
 
   /** BCP-47 language code, e.g. "en", "es", "fr", "ar" */
   @Column({ default: 'en' })

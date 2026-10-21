@@ -118,6 +118,55 @@ export class CoursesController {
     return this.coursesService.findAll(query);
   }
 
+  /**
+   * Validates the optional `difficulty` query param against the allowed levels.
+   * Returns `undefined` when the param is absent so the service can auto-detect.
+   */
+  private parseDifficulty(
+    difficulty?: string,
+  ): 'beginner' | 'intermediate' | 'advanced' | undefined {
+    if (difficulty === undefined || difficulty === null || difficulty === '') {
+      return undefined;
+    }
+    const normalized = String(difficulty).trim().toLowerCase();
+    if (
+      normalized !== 'beginner' &&
+      normalized !== 'intermediate' &&
+      normalized !== 'advanced'
+    ) {
+      throw new BadRequestException(
+        'difficulty must be one of: beginner, intermediate, advanced',
+      );
+    }
+    return normalized;
+  }
+
+  @Get('recommendations')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary: 'Get difficulty-aware course recommendations for the current learner',
+  })
+  @ApiQuery({
+    name: 'difficulty',
+    required: false,
+    enum: ['beginner', 'intermediate', 'advanced'],
+    description:
+      'Override the auto-detected learner level (defaults to the level derived from completed courses, or beginner when there is no history)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns courses at most one level above the learner level',
+    schema: { example: { data: [], learnerLevel: 'beginner', difficulty: 'beginner' } },
+  })
+  @ApiResponse({ status: 400, description: 'Invalid difficulty value' })
+  recommendations(
+    @Query('difficulty') difficulty?: string,
+    @Request() req?: { user?: { id: string; role: string } },
+  ) {
+    const override = this.parseDifficulty(difficulty);
+    return this.coursesService.getRecommendations(req?.user?.id, override);
+  }
+
   @Get('search')
   @ApiOperation({ summary: 'Search published courses by title and description' })
   @ApiQuery({ name: 'q', required: false, description: 'Search query; empty returns all courses' })
