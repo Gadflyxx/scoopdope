@@ -46,6 +46,12 @@ export class StudySession {
   @Column({ default: 0 })
   durationSeconds: number;
 
+  @Column({ type: 'int', default: 0 })
+  watchedSeconds: number;
+
+  @Column({ type: 'int', nullable: true })
+  furthestTimestamp: number | null;
+
   @Column({ default: true })
   isActive: boolean;
 
