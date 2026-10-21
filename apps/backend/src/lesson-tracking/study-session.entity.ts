@@ -43,6 +43,9 @@ export class StudySession {
   @Column({ type: 'timestamp with time zone', nullable: true })
   endedAt: Date | null;
 
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  lastHeartbeatAt: Date | null;
+
   @Column({ default: 0 })
   durationSeconds: number;
 
