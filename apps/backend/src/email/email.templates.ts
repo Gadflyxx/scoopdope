@@ -65,7 +65,45 @@ const applicationMessages = {
   },
 };
 
+const waitlistMessages = {
+  en: {
+    subject: "You're on the waitlist!",
+    title: "You're on the waitlist!",
+    body: 'Thanks for signing up. We will email you as soon as a spot opens up.',
+    positionLabel: 'Your position in the queue',
+    timeline: 'Estimated invitation timeline: we are inviting new members in batches over the coming weeks.',
+    greeting: 'Hello',
+  },
+  es: {
+    subject: '¡Estás en la lista de espera!',
+    title: '¡Estás en la lista de espera!',
+    body: 'Gracias por registrarte. Te enviaremos un correo en cuanto se libere una plaza.',
+    positionLabel: 'Tu posición en la cola',
+    timeline:
+      'Plazo estimado de invitación: estamos invitando a nuevos miembros por lotes durante las próximas semanas.',
+    greeting: 'Hola',
+  },
+  fr: {
+    subject: 'Vous êtes sur la liste d’attente !',
+    title: 'Vous êtes sur la liste d’attente !',
+    body: 'Merci de votre inscription. Nous vous enverrons un e-mail dès qu’une place se libère.',
+    positionLabel: 'Votre position dans la file',
+    timeline:
+      'Délai d’invitation estimé : nous invitons les nouveaux membres par lots au cours des prochaines semaines.',
+    greeting: 'Bonjour',
+  },
+  ar: {
+    subject: 'أنت على قائمة الانتظار!',
+    title: 'أنت على قائمة الانتظار!',
+    body: 'شكرًا لتسجيلك. سنرسل إليك بريدًا إلكترونيًا بمجرد توفر مكان.',
+    positionLabel: 'موقعك في قائمة الانتظار',
+    timeline: 'الموعد المتوقع للدعوة: ندعو الأعضاء الجدد على دفعات خلال الأسابيع القادمة.',
+    greeting: 'مرحبًا',
+  },
+};
+
 type ApplicationLocale = keyof typeof applicationMessages;
+type WaitlistLocale = keyof typeof waitlistMessages;
 
 const applicationTemplate = (
   kind: 'received' | 'approved' | 'rejected',
@@ -100,6 +138,22 @@ export const emailTemplates = {
 
   applicationRejected: (data: { userName: string; locale?: string; adminNote?: string | null }) =>
     applicationTemplate('rejected', data),
+
+  waitlistConfirmation: (data: { userName: string; position: number; locale?: string }) => {
+    const locale = (data.locale || 'en').split('-')[0] as WaitlistLocale;
+    const messages = waitlistMessages[locale] || waitlistMessages.en;
+
+    return {
+      subject: messages.subject,
+      html: `<div lang="${locale}" dir="${locale === 'ar' ? 'rtl' : 'ltr'}" style="font-family:sans-serif;max-width:600px;margin:0 auto">
+      <h2>${messages.title}</h2>
+      <p>${messages.greeting} ${escapeHtml(data.userName)},</p>
+      <p>${messages.body}</p>
+      <p><strong>${messages.positionLabel}:</strong> ${escapeHtml(String(data.position))}</p>
+      <p>${messages.timeline}</p>
+    </div>`,
+    };
+  },
 
   enrollment: (data: { userName: string; courseTitle: string; courseUrl: string; unsubscribeUrl: string }) => ({
     subject: `You're enrolled in "${data.courseTitle}"`,

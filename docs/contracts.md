@@ -186,6 +186,22 @@ stellar contract invoke \
 
 ---
 
+## Royalty Distribution Contract
+
+Distributes royalty payouts to rights holders, making external token contract calls during payout.
+
+### Function Signatures
+
+| Function | Parameters | Returns | Auth |
+|----------|-----------|---------|------|
+| `distribute_royalties` | `admin: Address, recipients: Vec<(Address, i128)>` | — | Admin |
+
+### Reentrancy Protection
+
+`distribute_royalties` is protected by the shared storage-backed reentrancy guard from `contracts/shared`. The guard acquires a persistent storage lock before any external token contract call and releases it only after the distribution completes. Any re-entrant call to `distribute_royalties` while a distribution is in progress is rejected with an error, preventing a malicious token contract or callback from draining funds beyond what is owed.
+
+---
+
 ## Governance Contract
 
 On-chain proposal and voting for platform parameter changes.
