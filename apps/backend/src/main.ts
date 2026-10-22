@@ -206,13 +206,6 @@ async function bootstrap() {
   app.use((req, res, next) => correlationId.use(req, res, next));
   app.use((req, res, next) => requestValidation.use(req, res, next));
 
-  // #1007: Lightweight, unauthenticated health check for load balancers and
-  // uptime monitors. Registered before global pipes/filters/interceptors so it
-  // stays fast and returns a plain 200 without extra processing.
-  app.getHttpAdapter().get('/health', (_req, res) => {
-    res.status(200).json({ status: 'ok' });
-  });
-
   app.setGlobalPrefix('v1', { exclude: ['health', 'health/live', 'health/ready', 'health/startup', 'health/environment', 'health/version'] });
   app.useGlobalPipes(
     new ValidationPipe({
