@@ -23,6 +23,7 @@ import {
   Address,
 } from '@stellar/stellar-sdk';
 import { redactErrorMessage } from '../common/utils/log-redactor';
+import { MetricsService } from '../metrics/metrics.service';
 
 const MAX_RETRIES = 3;
 const RETRY_OPTIONS = {
@@ -57,7 +58,8 @@ export class StellarService implements OnApplicationShutdown {
 
   constructor(
     private configService: ConfigService,
-    @Inject(CACHE_MANAGER) private cacheManager: Cache
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
+    private readonly metricsService: MetricsService
   ) {
     const isTestnet = this.configService.get<string>('stellar.network') !== 'mainnet';
     this.networkPassphrase = isTestnet ? Networks.TESTNET : Networks.PUBLIC;
@@ -123,6 +125,7 @@ export class StellarService implements OnApplicationShutdown {
    *
    * Queries the Horizon server for the account and returns its balance array,
    * which can include native XLM and any issued assets the account holds.
+   * Results are cached for 60 seconds to reduce Horizon API calls.
    *
    * @param publicKey - The Stellar public key (G...) of the account to query.
    * @returns An array of balance records from the Horizon API.
@@ -131,9 +134,17 @@ export class StellarService implements OnApplicationShutdown {
    * @throws {Error} on network failure when contacting the Horizon server.
    */
   async getAccountBalance(publicKey: string) {
+    const cacheKey = `stellar:balance:${publicKey}`;
+    const cached = await this.cacheManager.get<any>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     try {
       const account = await pRetry(() => this.server.loadAccount(publicKey), RETRY_OPTIONS);
-      return account.balances;
+      const balances = account.balances;
+      await this.cacheManager.set(cacheKey, balances, 60000); // 60 seconds
+      return balances;
     } catch (err: any) {
       if (err?.code === 'ETIMEDOUT' || err?.message?.toLowerCase().includes('timeout') || err?.message?.toLowerCase().includes('timed out')) {
         throw new GatewayTimeoutException('Network timeout while querying Stellar account balance');
@@ -555,24 +566,26 @@ export class StellarService implements OnApplicationShutdown {
    */
   private async invokeContract(contractId: string, method: string, args: any[]): Promise<string> {
     this.ensureSecretKeyConfigured();
-    const issuerKeypair = Keypair.fromSecret(this.secretKey);
-    const source = await this.sorobanServer.getAccount(issuerKeypair.publicKey());
-
-    const tx = new TransactionBuilder(source as any, {
-      fee: BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    })
-      .addOperation(
-        Operation.invokeContractFunction({
-          contract: contractId,
-          function: method,
-          args,
-        })
-      )
-      .setTimeout(30)
-      .build();
-
+    const startedAt = Date.now();
+    let status = 'success';
     try {
+      const issuerKeypair = Keypair.fromSecret(this.secretKey);
+      const source = await this.sorobanServer.getAccount(issuerKeypair.publicKey());
+
+      const tx = new TransactionBuilder(source as any, {
+        fee: BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(
+          Operation.invokeContractFunction({
+            contract: contractId,
+            function: method,
+            args,
+          })
+        )
+        .setTimeout(30)
+        .build();
+
       const prepared = await this.sorobanServer.prepareTransaction(tx);
       (prepared as any).sign(issuerKeypair);
       const result = await this.sorobanServer.sendTransaction(prepared as any);
@@ -580,6 +593,12 @@ export class StellarService implements OnApplicationShutdown {
       return result.hash;
     } catch (err: any) {
       const msg = err?.message || String(err);
+      const isTimeout =
+        err?.code === 'ETIMEDOUT' ||
+        msg.toLowerCase().includes('timeout') ||
+        msg.toLowerCase().includes('timed out');
+      status = isTimeout ? 'timeout' : 'error';
+
       if (
         msg.toLowerCase().includes('insufficient balance') ||
         msg.includes('op_insufficient_balance') ||
@@ -590,14 +609,17 @@ export class StellarService implements OnApplicationShutdown {
           'User wallet has insufficient BST tokens to complete this operation'
         );
       }
-      if (
-        err?.code === 'ETIMEDOUT' ||
-        msg.toLowerCase().includes('timeout') ||
-        msg.toLowerCase().includes('timed out')
-      ) {
+      if (isTimeout) {
+        this.metricsService.incrementStellarRpcTimeout(method);
         throw new GatewayTimeoutException('Stellar network operation timed out. Please try again later.');
       }
       throw err;
+    } finally {
+      this.metricsService.observeStellarRpcLatency(
+        method,
+        status,
+        (Date.now() - startedAt) / 1000
+      );
     }
   }
 

@@ -11,10 +11,13 @@ import { PushNotificationsService } from './push-notifications.service';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsEvents } from './notifications.events';
 import { NotificationsGateway } from './notifications.gateway';
+import { EmailModule } from '../email/email.module';
+import { NotificationIdempotencyService } from './notification-idempotency.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Notification, PushSubscription, PushNotificationQueue, User]),
+    TypeOrmModule.forFeature([Notification, PushSubscription, User]),
+    EmailModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({
@@ -29,7 +32,8 @@ import { NotificationsGateway } from './notifications.gateway';
     PushNotificationsService,
     NotificationsEvents,
     NotificationsGateway,
+    NotificationIdempotencyService,
   ],
-  exports: [NotificationsService, PushNotificationsService],
+  exports: [NotificationsService, PushNotificationsService, NotificationIdempotencyService],
 })
 export class NotificationsModule {}

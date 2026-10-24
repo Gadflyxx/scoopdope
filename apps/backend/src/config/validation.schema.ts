@@ -30,6 +30,8 @@ export const validationSchema = Joi.object({
   // Stellar
   STELLAR_NETWORK: Joi.string().valid('testnet', 'mainnet').default('testnet'),
   STELLAR_SECRET_KEY: Joi.string().optional(),
+  STELLAR_HORIZON_URL: Joi.string().uri().optional(),
+  STELLAR_HEALTH_CRITICAL: Joi.boolean().default(true),
   SOROBAN_RPC_URL: Joi.string().uri().default('https://soroban-testnet.stellar.org'),
   SOROBAN_CONTRACT_ID: Joi.string().allow('').default(''),
   ENROLLMENT_CONTRACT_ID: Joi.string().allow('').default(''),
@@ -91,6 +93,7 @@ export const validationSchema = Joi.object({
   STRIPE_WEBHOOK_SECRET: Joi.string().allow('').default(''),
   STRIPE_PRO_PRICE_ID: Joi.string().allow('').default(''),
   STRIPE_ENTERPRISE_PRICE_ID: Joi.string().allow('').default(''),
+  STRIPE_SUBSCRIPTION_PRORATION_ENABLED: Joi.boolean().default(true),
 
   // Exchange Rate (optional — falls back to free open.er-api.com)
   EXCHANGE_RATE_API_KEY: Joi.string().allow('').default(''),

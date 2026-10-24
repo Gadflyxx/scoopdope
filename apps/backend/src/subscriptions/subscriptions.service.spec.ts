@@ -7,6 +7,8 @@ import Stripe from 'stripe';
 
 import { SubscriptionsService } from './subscriptions.service';
 import { User, SubscriptionTier } from '../users/user.entity';
+import { Payment } from '../payments/payment.entity';
+import { MailService } from '../mail/mail.service';
 
 // ---------------------------------------------------------------------------
 // Stripe SDK mock
@@ -27,6 +29,7 @@ const WEBHOOK_SECRET = 'whsec_test';
 const PRO_PRICE_ID = 'price_pro';
 const ENTERPRISE_PRICE_ID = 'price_enterprise';
 const CURRENT_PERIOD_END = 1_800_000_000; // arbitrary Unix timestamp
+const CURRENT_PERIOD_START = CURRENT_PERIOD_END - 30 * 24 * 60 * 60;
 
 function makeUser(overrides: Partial<User> = {}): User {
   return {
@@ -97,7 +100,9 @@ function makeStripeSubscription(
     id: STRIPE_SUB_ID,
     object: 'subscription',
     status,
+    current_period_start: CURRENT_PERIOD_START,
     current_period_end: CURRENT_PERIOD_END,
+    latest_invoice: null,
     customer: STRIPE_CUSTOMER_ID,
     ...overrides,
   } as Stripe.Subscription;
@@ -110,12 +115,16 @@ function makeStripeSubscription(
 describe('SubscriptionsService', () => {
   let service: SubscriptionsService;
   let userRepo: jest.Mocked<Repository<User>>;
+  let paymentRepo: jest.Mocked<Repository<Payment>>;
+  let mailService: { sendEmail: jest.Mock };
 
   // Stripe instance methods we need to spy on
   let stripeInstance: {
     webhooks: { constructEvent: jest.Mock };
     checkout: { sessions: { create: jest.Mock } };
     subscriptions: { retrieve: jest.Mock };
+    invoices: { retrieve: jest.Mock };
+    refunds: { create: jest.Mock };
   };
 
   beforeEach(async () => {
@@ -127,6 +136,8 @@ describe('SubscriptionsService', () => {
       webhooks: { constructEvent: jest.fn() },
       checkout: { sessions: { create: jest.fn() } },
       subscriptions: { retrieve: jest.fn() },
+      invoices: { retrieve: jest.fn() },
+      refunds: { create: jest.fn() },
     };
 
     StripeMock.mockImplementation(() => stripeInstance as any);
@@ -143,22 +154,36 @@ describe('SubscriptionsService', () => {
           'stripe.webhookSecret': WEBHOOK_SECRET,
           'stripe.proPriceId': PRO_PRICE_ID,
           'stripe.enterprisePriceId': ENTERPRISE_PRICE_ID,
+          'stripe.prorationEnabled': true,
           'frontend.url': 'http://localhost:3001',
         };
         return config[key];
       }),
     };
+    const mockPaymentRepo: Partial<jest.Mocked<Repository<Payment>>> = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((payment) => payment as Payment),
+      save: jest.fn().mockImplementation(async (payment) => payment),
+    };
+    mailService = { sendEmail: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SubscriptionsService,
         { provide: getRepositoryToken(User), useValue: mockUserRepo },
+        { provide: getRepositoryToken(Payment), useValue: mockPaymentRepo },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: MailService, useValue: mailService },
       ],
     }).compile();
 
     service = module.get(SubscriptionsService);
     userRepo = module.get(getRepositoryToken(User));
+    paymentRepo = module.get(getRepositoryToken(Payment));
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -389,6 +414,74 @@ describe('SubscriptionsService', () => {
         subscriptionTier: SubscriptionTier.FREE,
         subscriptionExpiresAt: null,
       });
+    });
+
+    it('refunds the unused fraction of a paid monthly invoice and emails the learner', async () => {
+      const user = makeUser({
+        stripeSubscriptionId: STRIPE_SUB_ID,
+        subscriptionTier: SubscriptionTier.PRO,
+      });
+      userRepo.findOne.mockResolvedValue(user);
+      const refundTimestamp = (CURRENT_PERIOD_START + 10 * 24 * 60 * 60) * 1000;
+      jest.spyOn(Date, 'now').mockReturnValue(refundTimestamp);
+      stripeInstance.invoices.retrieve.mockResolvedValue({
+        amount_paid: 3000,
+        currency: 'usd',
+        payment_intent: 'pi_test123',
+      });
+      stripeInstance.refunds.create.mockResolvedValue({
+        id: 're_test123',
+        amount: 2000,
+        currency: 'usd',
+        status: 'succeeded',
+      });
+
+      stripeInstance.webhooks.constructEvent.mockReturnValue({
+        type: 'customer.subscription.deleted',
+        data: { object: makeStripeSubscription('canceled', { latest_invoice: 'in_test123' }) },
+      } as Stripe.Event);
+
+      await service.handleWebhook('valid-sig', Buffer.from('payload'));
+
+      expect(stripeInstance.invoices.retrieve).toHaveBeenCalledWith('in_test123');
+      expect(stripeInstance.refunds.create).toHaveBeenCalledWith(
+        { payment_intent: 'pi_test123', amount: 2000 },
+        { idempotencyKey: `subscription-proration-${STRIPE_SUB_ID}` },
+      );
+      expect(paymentRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+        userId: USER_ID,
+        stripeSubscriptionId: STRIPE_SUB_ID,
+        stripePaymentIntentId: 'pi_test123',
+        stripeRefundId: 're_test123',
+        amount: 2000,
+        currency: 'usd',
+        transactionType: 'refund',
+      }));
+      expect(mailService.sendEmail).toHaveBeenCalledWith(
+        user.email,
+        expect.stringContaining('refund'),
+        expect.stringContaining('$20.00'),
+      );
+    });
+
+    it('does not call Stripe refunds for a zero-price subscription', async () => {
+      userRepo.findOne.mockResolvedValue(makeUser({ stripeSubscriptionId: STRIPE_SUB_ID }));
+      jest.spyOn(Date, 'now').mockReturnValue((CURRENT_PERIOD_START + 10 * 24 * 60 * 60) * 1000);
+      stripeInstance.invoices.retrieve.mockResolvedValue({
+        amount_paid: 0,
+        currency: 'usd',
+        payment_intent: null,
+      });
+      stripeInstance.webhooks.constructEvent.mockReturnValue({
+        type: 'customer.subscription.deleted',
+        data: { object: makeStripeSubscription('canceled', { latest_invoice: 'in_test123' }) },
+      } as Stripe.Event);
+
+      await service.handleWebhook('valid-sig', Buffer.from('payload'));
+
+      expect(stripeInstance.refunds.create).not.toHaveBeenCalled();
+      expect(paymentRepo.save).not.toHaveBeenCalled();
+      expect(mailService.sendEmail).not.toHaveBeenCalled();
     });
   });
 
