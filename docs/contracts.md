@@ -186,6 +186,65 @@ stellar contract invoke \
 
 ---
 
+## Buyback Contract
+
+Executes token buyback operations and emits events for every state change so that external observers and the analytics backend can track buyback history.
+
+### Function Signatures
+
+| Function | Parameters | Returns | Auth |
+|----------|-----------|---------|------|
+| `schedule_buyback` | `admin: Address, amount: i128, execute_at_ledger: u32` | `u64` (buyback ID) | Admin |
+| `execute_buyback` | `buyback_id: u64` | — | Admin |
+| `cancel_buyback` | `admin: Address, buyback_id: u64` | — | Admin |
+| `get_buyback` | `buyback_id: u64` | `Option<BuybackRecord>` | None |
+
+### Event Schema
+
+| Topic 1 | Topic 2 | Data |
+|---------|---------|------|
+| `Symbol("buyback")` | `Symbol("scheduled")` | `(buyback_id: u64, amount: i128, execute_at_ledger: u32)` |
+| `Symbol("buyback")` | `Symbol("executed")` | `(buyback_id: u64, amount: i128, executed_at_ledger: u32)` |
+| `Symbol("buyback")` | `Symbol("cancelled")` | `(buyback_id: u64, amount: i128)` |
+
+> The backend's Stellar event listener subscribes to the `buyback` topic and stores each event in the analytics table.
+
+### CLI Examples
+
+```bash
+# Schedule a buyback of 500 BST (amount in stroops: 500 * 10^7)
+stellar contract invoke \
+  --id <BUYBACK_ID> \
+  --source admin \
+  --network testnet \
+  -- \
+  schedule_buyback \
+  --admin <ADMIN_ADDRESS> \
+  --amount 5000000000 \
+  --execute_at_ledger 600000
+
+# Execute a scheduled buyback
+stellar contract invoke \
+  --id <BUYBACK_ID> \
+  --source admin \
+  --network testnet \
+  -- \
+  execute_buyback \
+  --buyback_id 1
+
+# Cancel a scheduled buyback
+stellar contract invoke \
+  --id <BUYBACK_ID> \
+  --source admin \
+  --network testnet \
+  -- \
+  cancel_buyback \
+  --admin <ADMIN_ADDRESS> \
+  --buyback_id 1
+```
+
+---
+
 ## Governance Contract
 
 On-chain proposal and voting for platform parameter changes.
