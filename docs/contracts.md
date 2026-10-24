@@ -444,3 +444,24 @@ curl https://api.scoopdope.com/v1/credentials/verify/<TX_HASH>
 # Via Stellar CLI
 stellar tx fetch --hash <TX_HASH> --network testnet
 ```
+
+---
+
+## Branch Protection
+
+The contracts CI workflow (`.github/workflows/contracts.yml`) runs on every pull request targeting `main` or `develop`. It executes `cargo test`, `cargo fmt --check`, `cargo clippy`, `cargo audit`, and `cargo deny`, and caches Rust compilation artifacts so the job stays fast.
+
+### Required Status Check
+
+The **`Contracts - Test, Format, Lint, Audit, Deny`** check must pass before a PR can be merged into `main` or `develop`. A failing `cargo test` (or any other step in the workflow) blocks the merge.
+
+### Configuring the Required Check
+
+1. Go to the repository on GitHub and open **Settings → Branches**.
+2. Under **Branch protection rules**, edit the rule for `main` (and repeat for `develop`), or click **Add branch protection rule** if none exists.
+3. Enable **Require status checks to pass before merging**.
+4. In the status checks search box, select **`Contracts - Test, Format, Lint, Audit, Deny`**.
+5. Optionally enable **Require branches to be up to date before merging** so the check runs against the latest base branch.
+6. Save the rule.
+
+> The status check only appears in the list after the workflow has run at least once on a pull request. Open a PR (or re-run the workflow) if it is not yet selectable.
