@@ -39,8 +39,8 @@ export class Course {
   @Column({ default: 'beginner' })
   level: string;
 
-  /** BCP-47 language code, e.g. "en", "es", "fr", "ar" */
-  @Column({ default: 'en' })
+  /** ISO 639-1 language code of the course content: "en", "fr", "ar", "es" */
+  @Column({ type: 'varchar', length: 2, default: 'en' })
   language: string;
 
   @Column({ default: 0 })

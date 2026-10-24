@@ -96,6 +96,10 @@ export class CoursesService {
       });
     }
 
+    if (language) {
+      qb.andWhere('course.language = :language', { language });
+    }
+
     const rows = this.parseCsv(file.buffer.toString('utf-8'));
     if (rows.length === 0) {
       throw new BadRequestException('CSV file contains no data rows');

@@ -127,6 +127,8 @@ export default () => ({
 
   exchangeRate: {
     apiKey: process.env.EXCHANGE_RATE_API_KEY || '',
+    baseUrl: process.env.EXCHANGE_RATE_BASE_URL || 'https://open.er-api.com/v6/latest',
+    cacheTtlMs: parseInt(process.env.EXCHANGE_RATE_CACHE_TTL_MS || '3600000', 10),
   },
 
   payouts: {
