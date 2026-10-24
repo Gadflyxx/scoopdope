@@ -9,17 +9,22 @@ import { check, sleep, group } from 'k6';
 
 export const options = {
   stages: [
-    { duration: '30s', target: 30 },
-    { duration: '2m', target: 30 },
+    { duration: '30s', target: 50 },
+    { duration: '1m', target: 100 },
+    { duration: '2m', target: 100 },
     { duration: '30s', target: 0 },
   ],
   thresholds: {
     http_req_duration: ['p(95)<800', 'p(99)<1500'],
     http_req_failed: ['rate<0.05'],
     'http_req_duration{endpoint:video}': ['p(95)<1000'],
+    'http_req_duration{endpoint:video_range}': ['p(95)<1000'],
+    'http_req_failed{endpoint:video_range}': ['rate<0.01'],
     'http_req_duration{endpoint:progress}': ['p(95)<500'],
   },
 };
+
+const RANGE_HEADER = 'bytes=0-999999';
 
 const BASE_URL = __ENV.API_URL || 'http://localhost:3000';
 
@@ -99,6 +104,28 @@ export default function (data) {
     check(res, {
       'lesson accessible': (r) => r.status === 200 || r.status === 403,
       'video response time ok': (r) => r.timings.duration < 1000,
+    });
+  });
+
+  sleep(1);
+
+  group('Seek video (range request)', () => {
+    if (lessonIds.length === 0) return;
+    const lessonId = lessonIds[__VU % lessonIds.length];
+    const res = http.get(`${BASE_URL}/v1/lessons/${lessonId}/video`, {
+      headers: { ...headers, Range: RANGE_HEADER },
+      tags: { endpoint: 'video_range' },
+    });
+
+    check(res, {
+      'range request returns 206': (r) => r.status === 206,
+      'content-range header present': (r) => !!r.headers['Content-Range'],
+      'content-range format valid': (r) =>
+        /^bytes 0-\d+\/\d+$/.test(r.headers['Content-Range'] || ''),
+      'content-length header present': (r) => !!r.headers['Content-Length'],
+      'content-length matches body': (r) =>
+        parseInt(r.headers['Content-Length'], 10) === r.body.length,
+      'range response time ok': (r) => r.timings.duration < 1000,
     });
   });
 

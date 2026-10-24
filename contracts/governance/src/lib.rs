@@ -129,11 +129,24 @@ impl GovernanceContract {
     ) -> u64 {
         proposer.require_auth();
         assert!(
+            title.len() > 0 && title.len() <= 200,
+            "Title must be between 1 and 200 bytes"
+        );
+        assert!(
+            description.len() <= 2000,
+            "Description must not exceed 2000 bytes"
+        );
+        assert!(
             voting_end_ledger > env.ledger().sequence(),
             "Voting end must be in future"
         );
+        assert!(
+            voting_end_ledger <= env.ledger().sequence() + 1_000_000,
+            "Voting duration exceeds maximum allowed bound"
+        );
 
         let id: u64 = env.storage().instance().get(&DataKey::NextProposalId).unwrap();
+
         let proposal = ProposalRecord {
             id,
             proposer: proposer.clone(),
