@@ -23,6 +23,7 @@ import {
   StartStudySessionDto,
   EndStudySessionDto,
   HeartbeatStudySessionDto,
+  UpdateLessonProgressDto,
 } from './dto/study-session.dto';
 
 @ApiTags('lesson-tracking')
@@ -110,6 +111,64 @@ export class LessonTrackingController {
     return this.service.heartbeat(dto.sessionId);
   }
 
+  @Post('lessons/:lessonId/progress')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update lesson progress with watch time' })
+  @ApiBody({ type: UpdateLessonProgressDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Lesson progress updated',
+    schema: {
+      example: {
+        lessonId: 'uuid',
+        userId: 'uuid',
+        watchedSeconds: 300,
+        furthestTimestamp: 300,
+        completed: false,
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Lesson not found' })
+  async updateLessonProgress(
+    @CurrentUser() user: any,
+    @Param('lessonId') lessonId: string,
+    @Body() dto: UpdateLessonProgressDto,
+  ) {
+    return this.service.updateLessonProgress(
+      user.id,
+      lessonId,
+      dto.watchedSeconds,
+      dto.furthestTimestamp,
+    );
+  }
+
+  @Get('lessons/:lessonId/progress')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get lesson progress including resume position' })
+  @ApiResponse({
+    status: 200,
+    description: 'Lesson progress',
+    schema: {
+      example: {
+        lessonId: 'uuid',
+        userId: 'uuid',
+        watchedSeconds: 300,
+        furthestTimestamp: 300,
+        completed: false,
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getLessonProgress(
+    @CurrentUser() user: any,
+    @Param('lessonId') lessonId: string,
+  ) {
+    return this.service.getLessonProgress(user.id, lessonId);
+  }
+
   @Get('lessons/:lessonId/stats')
   @ApiOperation({ summary: 'Get time statistics for a lesson' })
   @ApiResponse({
@@ -122,6 +181,8 @@ export class LessonTrackingController {
         totalTimeSeconds: 12000,
         studentCount: 10,
         isDifficult: true,
+        averageWatchedSeconds: 900,
+        averageFurthestTimestamp: 900,
       },
     },
   })

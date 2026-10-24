@@ -4,7 +4,24 @@ import { Interval } from '@nestjs/schedule';
 import { Repository, LessThanOrEqual, GreaterThanOrEqual } from 'typeorm';
 import { StudySession } from './study-session.entity';
 import { LessonTimeStat } from './lesson-time-stat.entity';
+import { LessonProgress } from './lesson-progress.entity';
 import { Lesson } from '../courses/lesson.entity';
+
+export interface LessonProgressUpdate {
+  watchedSeconds?: number;
+  furthestTimestamp?: number;
+  currentTimestamp?: number;
+  completed?: boolean;
+}
+
+export interface LessonProgressResponse {
+  lessonId: string;
+  userId: string;
+  watchedSeconds: number;
+  furthestTimestamp: number;
+  completed: boolean;
+  updatedAt: Date;
+}
 
 @Injectable()
 export class LessonTrackingService {
@@ -15,6 +32,7 @@ export class LessonTrackingService {
   constructor(
     @InjectRepository(StudySession) private sessionRepo: Repository<StudySession>,
     @InjectRepository(LessonTimeStat) private statsRepo: Repository<LessonTimeStat>,
+    @InjectRepository(LessonProgress) private progressRepo: Repository<LessonProgress>,
     @InjectRepository(Lesson) private lessonRepo: Repository<Lesson>,
   ) {}
 
@@ -89,6 +107,87 @@ export class LessonTrackingService {
     session.updatedAt = now;
     session.lastHeartbeatAt = now;
     return this.sessionRepo.save(session);
+  }
+
+  /**
+   * Record a lesson progress update, persisting watchedSeconds and furthestTimestamp.
+   *
+   * watchedSeconds is computed from the delta between the previous furthestTimestamp
+   * and the new one, so rewatched segments are not double-counted. A rewind (new
+   * timestamp below the previous furthest point) contributes no additional watch time.
+   */
+  async updateLessonProgress(
+    userId: string,
+    lessonId: string,
+    courseId: string,
+    update: LessonProgressUpdate,
+  ): Promise<LessonProgressResponse> {
+    let progress = await this.progressRepo.findOne({ where: { userId, lessonId } });
+    if (!progress) {
+      progress = this.progressRepo.create({
+        userId,
+        lessonId,
+        courseId,
+        watchedSeconds: 0,
+        furthestTimestamp: 0,
+        completed: false,
+      });
+    }
+
+    const previousFurthest = progress.furthestTimestamp ?? 0;
+    const incomingTimestamp =
+      update.furthestTimestamp ?? update.currentTimestamp ?? previousFurthest;
+
+    // Only advance the furthest point; rewinds never reduce it.
+    const newFurthest = Math.max(previousFurthest, incomingTimestamp);
+
+    // Watch time is the forward delta only, excluding rewatched segments.
+    const delta = Math.max(0, newFurthest - previousFurthest);
+    const computedWatched = (progress.watchedSeconds ?? 0) + delta;
+
+    // If the client supplies an explicit watchedSeconds, take the larger of the
+    // two so we never under-count but also never double-count rewatches.
+    const explicitWatched =
+      typeof update.watchedSeconds === 'number' && update.watchedSeconds >= 0
+        ? update.watchedSeconds
+        : 0;
+
+    progress.watchedSeconds = Math.max(computedWatched, explicitWatched);
+    progress.furthestTimestamp = newFurthest;
+    if (typeof update.completed === 'boolean') {
+      progress.completed = update.completed;
+    }
+    progress.updatedAt = new Date();
+
+    const saved = await this.progressRepo.save(progress);
+
+    return this.toProgressResponse(saved);
+  }
+
+  /**
+   * Get the persisted lesson progress for a student, including furthestTimestamp
+   * so the frontend can resume playback from where the learner left off.
+   */
+  async getLessonProgress(
+    userId: string,
+    lessonId: string,
+  ): Promise<LessonProgressResponse | null> {
+    const progress = await this.progressRepo.findOne({ where: { userId, lessonId } });
+    if (!progress) {
+      return null;
+    }
+    return this.toProgressResponse(progress);
+  }
+
+  private toProgressResponse(progress: LessonProgress): LessonProgressResponse {
+    return {
+      lessonId: progress.lessonId,
+      userId: progress.userId,
+      watchedSeconds: progress.watchedSeconds ?? 0,
+      furthestTimestamp: progress.furthestTimestamp ?? 0,
+      completed: progress.completed ?? false,
+      updatedAt: progress.updatedAt,
+    };
   }
 
   /**
