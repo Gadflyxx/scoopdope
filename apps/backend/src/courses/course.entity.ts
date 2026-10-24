@@ -22,6 +22,12 @@ export enum CourseStatus {
   ARCHIVED = 'archived',
 }
 
+export enum CourseDifficulty {
+  BEGINNER = 'beginner',
+  INTERMEDIATE = 'intermediate',
+  ADVANCED = 'advanced',
+}
+
 @Entity('courses')
 export class Course {
   @PrimaryGeneratedColumn('uuid')
@@ -36,6 +42,7 @@ export class Course {
   @Column({ nullable: true })
   category: string;
 
+  /** @deprecated use difficultyLevel instead */
   @Column({ default: 'beginner' })
   level: string;
 

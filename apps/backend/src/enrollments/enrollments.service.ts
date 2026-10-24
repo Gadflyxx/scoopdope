@@ -159,6 +159,26 @@ export class EnrollmentsService {
       .getCount();
   }
 
+  /**
+   * Return the difficulty levels of all courses a learner has completed.
+   *
+   * Used by the recommendation engine to assess the learner's current level.
+   * Only enrollments with a non-null `completedAt` are considered, and the
+   * joined course's `difficultyLevel` is selected.
+   */
+  async getCompletedCourseLevels(userId: string): Promise<CourseLevel[]> {
+    const rows = await this.repo
+      .createQueryBuilder('enrollment')
+      .innerJoin('enrollment.course', 'course')
+      .select('course.difficultyLevel', 'difficultyLevel')
+      .where('enrollment.userId = :userId', { userId })
+      .andWhere('enrollment.completedAt IS NOT NULL')
+      .andWhere('course.difficultyLevel IS NOT NULL')
+      .getRawMany<{ difficultyLevel: CourseLevel }>();
+
+    return rows.map((row) => row.difficultyLevel);
+  }
+
   async unenroll(userId: string, courseId: string): Promise<void> {
     const enrollment = await this.enrollmentRepository.findOne({
       where: { userId, courseId },
