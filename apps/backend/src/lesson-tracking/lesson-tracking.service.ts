@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Interval } from '@nestjs/schedule';
 import { Repository, LessThanOrEqual, GreaterThanOrEqual } from 'typeorm';
 import { StudySession } from './study-session.entity';
 import { LessonTimeStat } from './lesson-time-stat.entity';
@@ -9,6 +10,7 @@ import { Lesson } from '../courses/lesson.entity';
 export class LessonTrackingService {
   private readonly logger = new Logger(LessonTrackingService.name);
   private readonly MAX_SESSION_DURATION_MINUTES = 120; // 2 hours max before auto-closing
+  private readonly HEARTBEAT_TIMEOUT_SECONDS = 90; // End session if no heartbeat within 90s
 
   constructor(
     @InjectRepository(StudySession) private sessionRepo: Repository<StudySession>,
@@ -30,11 +32,13 @@ export class LessonTrackingService {
       { isActive: false },
     );
 
+    const now = new Date();
     const session = this.sessionRepo.create({
       userId,
       lessonId,
       courseId,
-      startedAt: new Date(),
+      startedAt: now,
+      lastHeartbeatAt: now,
       isActive: true,
       durationSeconds: 0,
     });
@@ -81,7 +85,9 @@ export class LessonTrackingService {
       throw new Error(`Session ${sessionId} not found`);
     }
 
-    session.updatedAt = new Date();
+    const now = new Date();
+    session.updatedAt = now;
+    session.lastHeartbeatAt = now;
     return this.sessionRepo.save(session);
   }
 
@@ -249,6 +255,45 @@ export class LessonTrackingService {
       overallMedianTimeSeconds: median,
       recommendedThreshold: Math.round(median * 1.5),
     };
+  }
+
+  /**
+   * Scheduled job: end active sessions whose last heartbeat is older than
+   * HEARTBEAT_TIMEOUT_SECONDS (e.g. tab closed or device asleep).
+   */
+  @Interval('heartbeat-timeout-check', 30_000)
+  async handleHeartbeatTimeout(): Promise<void> {
+    try {
+      const closed = await this.autoCloseStaleHeartbeatSessions();
+      if (closed > 0) {
+        this.logger.log(`Auto-ended ${closed} session(s) due to missing heartbeat`);
+      }
+    } catch (err) {
+      this.logger.error('Failed to auto-end stale heartbeat sessions', err as Error);
+    }
+  }
+
+  /**
+   * End active sessions whose lastHeartbeatAt is older than the heartbeat timeout.
+   * Returns the number of sessions ended.
+   */
+  async autoCloseStaleHeartbeatSessions(): Promise<number> {
+    const cutoffTime = new Date(
+      Date.now() - this.HEARTBEAT_TIMEOUT_SECONDS * 1000,
+    );
+
+    const staleSessions = await this.sessionRepo.find({
+      where: {
+        isActive: true,
+        lastHeartbeatAt: LessThanOrEqual(cutoffTime),
+      },
+    });
+
+    for (const session of staleSessions) {
+      await this.endSession(session.id);
+    }
+
+    return staleSessions.length;
   }
 
   /**

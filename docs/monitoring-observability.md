@@ -35,7 +35,7 @@ docker compose up -d backend postgres redis
 | Grafana | http://localhost:3002 | admin / admin |
 | Prometheus | http://localhost:9090 | — |
 | Metrics endpoint | http://localhost:3000/metrics | — |
-| Health endpoint | http://localhost:3000/v1/health | — |
+| Health endpoint | http://localhost:3000/health | — |
 
 ---
 
@@ -54,7 +54,8 @@ docker compose up -d backend postgres redis
 | `http_requests_total` | Counter | `method`, `route`, `status_code` | Total HTTP requests handled. Incremented automatically by `MetricsInterceptor` on every response. |
 | `credential_issued_total` | Counter | `credential_type` | On-chain credentials issued via Stellar. Call `MetricsService.incrementCredentialIssued(type)` when issuing. |
 | `bst_minted_total` | Counter | `user_id` | BST reward tokens minted. Call `MetricsService.incrementBstMinted(userId)` when minting. |
-| `stellar_rpc_latency_seconds` | Histogram | `method`, `status` | Stellar RPC call duration. Buckets: 0.1s, 0.5s, 1s, 2s, 5s. Call `MetricsService.observeStellarRpcLatency(method, status, seconds)`. |
+| `stellar_rpc_latency_seconds` | Histogram | `method`, `status` | Duration of every Soroban contract invocation, including retries. Status is `success`, `error`, or `timeout`. Buckets: 0.1s, 0.5s, 1s, 2s, 5s, 10s, 30s. |
+| `stellar_rpc_timeouts_total` | Counter | `method` | Total timed-out Soroban contract invocations. |
 
 #### Default Node.js / process metrics (auto-collected by prom-client)
 
@@ -77,8 +78,17 @@ rate(http_requests_total{status_code=~"5.."}[5m])
 # Request rate by route
 sum by (route) (rate(http_requests_total[1m]))
 
-# 95th percentile Stellar RPC latency
-histogram_quantile(0.95, rate(stellar_rpc_latency_seconds_bucket[5m]))
+# Stellar RPC p50 / p95 / p99 latency by contract method
+histogram_quantile(0.50, sum by (le, method) (rate(stellar_rpc_latency_seconds_bucket[5m])))
+histogram_quantile(0.95, sum by (le, method) (rate(stellar_rpc_latency_seconds_bucket[5m])))
+histogram_quantile(0.99, sum by (le, method) (rate(stellar_rpc_latency_seconds_bucket[5m])))
+
+# Stellar RPC error and timeout rate (%)
+100 * sum(rate(stellar_rpc_latency_seconds_count{status=~"error|timeout"}[5m]))
+  / clamp_min(sum(rate(stellar_rpc_latency_seconds_count[5m])), 1e-9)
+
+# Stellar RPC timeouts in the last 5 minutes
+sum(increase(stellar_rpc_timeouts_total[5m]))
 
 # Credentials issued per minute
 rate(credential_issued_total[1m])
@@ -181,6 +191,9 @@ The pre-built dashboard (`nestjs-metrics.json`) includes:
 | Credential Issuance | `rate(credential_issued_total[5m])` | Credentials issued per second |
 | BST Minted | `rate(bst_minted_total[5m])` | Tokens minted per second |
 | Stellar RPC p95 | `histogram_quantile(0.95, rate(stellar_rpc_latency_seconds_bucket[5m]))` | 95th percentile RPC latency |
+| Stellar RPC p50/p95/p99 | Quantiles from `stellar_rpc_latency_seconds_bucket`, grouped by `method` | Contract invocation latency by percentile |
+| Stellar RPC Error Rate | `status=~"error|timeout"` divided by all RPC calls | Percentage of failed or timed-out invocations |
+| Stellar RPC Timeouts | `sum(increase(stellar_rpc_timeouts_total[5m]))` | Timed-out calls in the last 5 minutes |
 | Heap Memory | `nodejs_heap_size_used_bytes / 1024 / 1024` | Heap usage in MB |
 | Event Loop Lag | `nodejs_eventloop_lag_seconds` | Event loop latency |
 
@@ -292,7 +305,7 @@ Logs are automatically collected by your cluster's logging agent (Fluentd, Fluen
 
 ## Health Checks
 
-`GET /v1/health` runs five checks and returns `200 OK` when all pass, or `503 Service Unavailable` when any fail.
+`GET /health` checks PostgreSQL, Redis, memory, and Stellar Horizon. It returns `200 OK` when critical checks pass, or `503 Service Unavailable` when a critical check fails.
 
 | Check | Threshold | What it tests |
 |---|---|---|
@@ -300,21 +313,26 @@ Logs are automatically collected by your cluster's logging agent (Fluentd, Fluen
 | `memory_heap` | 150 MB | V8 heap usage |
 | `memory_rss` | 300 MB | Process RSS memory |
 | `redis` | — | Set + get a test key in Redis |
-| `stellar_horizon` | — | HTTP ping to `$STELLAR_HORIZON_URL/health` |
+| `stellar` | 2 seconds | HTTP `GET` to `$STELLAR_HORIZON_URL/health`; failure is critical by default |
+
+Stellar severity is controlled by `STELLAR_HEALTH_CRITICAL`:
+
+- `true` (default): a Horizon failure reports `checks.stellar.status: "down"` and makes `/health` return `503`.
+- `false`: a Horizon failure is reported as `checks.stellar.status: "down"`, but is warning-only and does not make the overall health status fail.
+
+`STELLAR_HORIZON_URL` selects the Horizon base URL. It defaults to the testnet Horizon endpoint, or the mainnet endpoint when `STELLAR_NETWORK=mainnet`. The health request timeout is fixed at 2 seconds.
 
 **Example healthy response:**
 ```json
 {
   "status": "ok",
-  "info": {
+  "checks": {
     "database": { "status": "up" },
     "memory_heap": { "status": "up" },
     "memory_rss": { "status": "up" },
-    "redis": { "status": "up", "message": "Redis is responsive" },
-    "stellar_horizon": { "status": "up" }
-  },
-  "error": {},
-  "details": { ... }
+    "redis": { "status": "up" },
+    "stellar": { "status": "up", "latencyMs": 42 }
+  }
 }
 ```
 
@@ -419,15 +437,15 @@ groups:
           summary: "High HTTP error rate"
           description: "More than 5% of requests are returning 5xx errors for 2 minutes."
 
-      # Slow Stellar RPC calls
-      - alert: StellarRpcSlow
-        expr: histogram_quantile(0.95, rate(stellar_rpc_latency_seconds_bucket[5m])) > 2
+      # Stellar RPC p95 latency above 5 seconds
+      - alert: StellarRpcHighLatency
+        expr: histogram_quantile(0.95, sum(rate(stellar_rpc_latency_seconds_bucket[5m])) by (le)) > 5
         for: 5m
         labels:
-          severity: warning
+          severity: critical
         annotations:
-          summary: "Stellar RPC p95 latency above 2s"
-          description: "95th percentile Stellar RPC latency has exceeded 2 seconds for 5 minutes."
+          summary: "Stellar RPC p95 latency above 5s"
+          description: "95th percentile Stellar RPC latency has exceeded 5 seconds for 5 minutes."
 
       # High heap memory usage
       - alert: HighHeapMemory
@@ -478,7 +496,7 @@ alerting:
 | Signal | Warning | Critical | Source |
 |---|---|---|---|
 | 5xx error rate | > 1% | > 5% | `http_requests_total` |
-| Stellar RPC p95 latency | > 1s | > 2s | `stellar_rpc_latency_seconds` |
+| Stellar RPC p95 latency | > 2s | > 5s | `stellar_rpc_latency_seconds` |
 | Heap memory | > 120 MB | > 150 MB (health check fails) | `nodejs_heap_size_used_bytes` |
 | RSS memory | — | > 300 MB (health check fails) | `process_resident_memory_bytes` |
 | Event loop lag | > 100ms | > 500ms | `nodejs_eventloop_lag_seconds` |

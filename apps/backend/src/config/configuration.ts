@@ -52,6 +52,15 @@ export default () => ({
     webAuthDomain: process.env.STELLAR_WEB_AUTH_DOMAIN || 'localhost',
   },
 
+  health: {
+    stellarCritical: process.env.STELLAR_HEALTH_CRITICAL?.toLowerCase() !== 'false',
+    stellarHorizonUrl:
+      process.env.STELLAR_HORIZON_URL ||
+      (process.env.STELLAR_NETWORK === 'mainnet'
+        ? 'https://horizon.stellar.org'
+        : 'https://horizon-testnet.stellar.org'),
+  },
+
   mail: {
     host: process.env.EMAIL_HOST!,
     port: parseInt(process.env.EMAIL_PORT || '587', 10),

@@ -82,9 +82,28 @@ export class LessonTrackingController {
   @Post('sessions/heartbeat')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Send heartbeat to keep session alive' })
+  @ApiOperation({
+    summary: 'Send heartbeat to keep session alive',
+    description:
+      'Called by the frontend every 30 seconds while the browser tab is visible. ' +
+      'Sessions with no heartbeat for 90 seconds are automatically marked as ended.',
+  })
   @ApiBody({ type: HeartbeatStudySessionDto })
-  @ApiResponse({ status: 200, description: 'Heartbeat received' })
+  @ApiResponse({
+    status: 200,
+    description: 'Heartbeat received',
+    schema: {
+      example: {
+        id: 'uuid',
+        userId: 'uuid',
+        lessonId: 'uuid',
+        startedAt: '2024-01-01T00:00:00Z',
+        lastHeartbeatAt: '2024-01-01T00:05:30Z',
+        durationSeconds: 330,
+        status: 'active',
+      },
+    },
+  })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Session not found' })
   async heartbeat(@Body() dto: HeartbeatStudySessionDto) {
