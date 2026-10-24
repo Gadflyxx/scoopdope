@@ -35,7 +35,7 @@ docker compose up -d backend postgres redis
 | Grafana | http://localhost:3002 | admin / admin |
 | Prometheus | http://localhost:9090 | — |
 | Metrics endpoint | http://localhost:3000/metrics | — |
-| Health endpoint | http://localhost:3000/v1/health | — |
+| Health endpoint | http://localhost:3000/health | — |
 
 ---
 
@@ -292,7 +292,7 @@ Logs are automatically collected by your cluster's logging agent (Fluentd, Fluen
 
 ## Health Checks
 
-`GET /v1/health` runs five checks and returns `200 OK` when all pass, or `503 Service Unavailable` when any fail.
+`GET /health` checks PostgreSQL, Redis, memory, and Stellar Horizon. It returns `200 OK` when critical checks pass, or `503 Service Unavailable` when a critical check fails.
 
 | Check | Threshold | What it tests |
 |---|---|---|
@@ -300,21 +300,26 @@ Logs are automatically collected by your cluster's logging agent (Fluentd, Fluen
 | `memory_heap` | 150 MB | V8 heap usage |
 | `memory_rss` | 300 MB | Process RSS memory |
 | `redis` | — | Set + get a test key in Redis |
-| `stellar_horizon` | — | HTTP ping to `$STELLAR_HORIZON_URL/health` |
+| `stellar` | 2 seconds | HTTP `GET` to `$STELLAR_HORIZON_URL/health`; failure is critical by default |
+
+Stellar severity is controlled by `STELLAR_HEALTH_CRITICAL`:
+
+- `true` (default): a Horizon failure reports `checks.stellar.status: "down"` and makes `/health` return `503`.
+- `false`: a Horizon failure is reported as `checks.stellar.status: "down"`, but is warning-only and does not make the overall health status fail.
+
+`STELLAR_HORIZON_URL` selects the Horizon base URL. It defaults to the testnet Horizon endpoint, or the mainnet endpoint when `STELLAR_NETWORK=mainnet`. The health request timeout is fixed at 2 seconds.
 
 **Example healthy response:**
 ```json
 {
   "status": "ok",
-  "info": {
+  "checks": {
     "database": { "status": "up" },
     "memory_heap": { "status": "up" },
     "memory_rss": { "status": "up" },
-    "redis": { "status": "up", "message": "Redis is responsive" },
-    "stellar_horizon": { "status": "up" }
-  },
-  "error": {},
-  "details": { ... }
+    "redis": { "status": "up" },
+    "stellar": { "status": "up", "latencyMs": 42 }
+  }
 }
 ```
 
