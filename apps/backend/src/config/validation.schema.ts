@@ -107,4 +107,7 @@ export const validationSchema = Joi.object({
   // Rewards
   REWARD_MODULE_COMPLETION: Joi.number().integer().min(0).default(25),
   REWARD_COURSE_COMPLETION: Joi.number().integer().min(0).default(100),
+
+  // Survey
+  SURVEY_PSEUDONYMIZATION_SECRET: Joi.string().min(32).required(),
 });

@@ -5,6 +5,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { DistributedLockService } from '../common/distributed-lock.service';
+import { PseudonymizationService } from './pseudonymization.service';
 import { CourseAnalytics } from './course-analytics.entity';
 import { Enrollment } from '../enrollments/enrollment.entity';
 import { Progress } from '../progress/progress.entity';
@@ -83,6 +84,7 @@ export class AnalyticsService {
     @InjectRepository(BuybackEvent) private buybackEventRepo: Repository<BuybackEvent>,
     @Inject(CACHE_MANAGER) private cache: Cache,
     private readonly distributedLockService: DistributedLockService,
+    private readonly pseudonymizationService: PseudonymizationService,
   ) {}
 
   async getAnalytics(courseId: string): Promise<CourseAnalytics> {

@@ -219,6 +219,62 @@ Horizon results are paginated; the export job follows the `next` cursor until al
 
 ---
 
+## Survey Response Pseudonymization
+
+Survey responses are frequently collected under a promise of anonymity, so analytics exports must not allow answers to be correlated back to an individual. The survey module therefore **pseudonymizes** the respondent identifier before any export.
+
+### How `pseudoId` Is Derived
+
+Each exported survey response row contains a `pseudoId` instead of the raw `userId`. The `pseudoId` is computed as an HMAC-SHA256 of the `userId`, keyed with a server-side secret:
+
+```typescript
+import { createHmac } from 'crypto';
+
+function pseudonymize(userId: string): string {
+  return createHmac('sha256', process.env.SURVEY_PSEUDONYMIZATION_SECRET!)
+    .update(userId)
+    .digest('hex');
+}
+```
+
+Properties of this scheme:
+
+- **Deterministic** — the same `userId` always yields the same `pseudoId` for a given secret, so responses from one respondent can still be grouped for aggregate analytics.
+- **Non-reversible without the secret** — the HMAC key is required to test candidate IDs, so the export alone cannot be used to re-identify respondents.
+- **No raw identifiers in exports** — the survey export CSV contains only `pseudoId`, never `userId`, email, or username.
+
+### Secret Management
+
+`SURVEY_PSEUDONYMIZATION_SECRET` is a server-side secret:
+
+- It is configured only via environment variables (see `.env.example`) and is never exposed to the frontend or included in API responses.
+- It must be a high-entropy random value (e.g. `openssl rand -hex 32`).
+- It must be stored in the secrets manager used for production (AWS Secrets Manager / SSM) and never committed to the repository.
+- **Rotating the secret changes every `pseudoId`.** Historical exports will no longer join with new ones. If rotation is required, keep the previous secret available for a transition period or re-derive and re-export affected data.
+
+### Admin-Only Resolution Endpoint
+
+For legitimate investigations (e.g. a legal request or an abuse report), admins can resolve a `pseudoId` back to a `userId` via a dedicated endpoint:
+
+```http
+POST /v1/admin/surveys/responses/resolve
+Authorization: Bearer <admin-jwt>
+Content-Type: application/json
+
+{ "pseudoId": "<hex hmac>" }
+```
+
+- The endpoint is guarded by the admin role (`RolesGuard` with `Role.ADMIN`); non-admin callers receive `403 Forbidden`.
+- Every resolution attempt is **audit logged** — the requesting admin's `userId`, the requested `pseudoId`, the resolved `userId` (if any), the timestamp, and the source IP are recorded so that de-anonymization is itself accountable.
+- Resolution should be used only when strictly necessary and the justification recorded in the audit trail.
+
+### Data Minimisation Notes
+
+- Survey responses are stored with the `userId` in the primary database (needed for submission integrity and duplicate prevention), but that link is never included in analytics exports.
+- When a user is hard-deleted, their survey responses should be anonymised or deleted in line with the retention policy below.
+
+---
+
 ## Data Deletion Procedures
 
 ### Right to Erasure (GDPR Art. 17)

@@ -504,7 +504,157 @@ alerting:
 
 ---
 
+## ALB Access Logs
+
+The Application Load Balancer writes an access log entry for every HTTP request that reaches the platform. These logs are the authoritative record for security forensics and traffic analysis, and back the compliance controls described in `SECURITY.md`.
+
+### Where logs are stored
+
+Access logs are enabled on the ALB resource in the Terraform module (`access_logs { bucket = var.log_bucket, enabled = true }`). The destination bucket is configured with:
+
+| Setting | Value |
+|---|---|
+| Bucket | `var.log_bucket` (name set via `var.log_bucket_name`) |
+| Prefix | `alb/` |
+| Encryption | SSE-S3 (AES-256) server-side encryption |
+| Versioning | Enabled |
+| Retention | 90 days (`var.log_retention_days`, default `90`) via an S3 lifecycle rule that expires objects and non-current versions |
+
+Log objects are delivered as gzipped JSON, one object per ALB node per interval, under `s3://<log_bucket>/alb/`.
+
+### Querying with Athena
+
+Create an external table over the log prefix (adjust the bucket name and region):
+
+```sql
+CREATE EXTERNAL TABLE IF NOT EXISTS alb_access_logs (
+  type string,
+  time string,
+  elb string,
+  client_ip string,
+  client_port int,
+  target_ip string,
+  target_port int,
+  request_processing_time double,
+  target_processing_time double,
+  response_processing_time double,
+  elb_status_code int,
+  target_status_code string,
+  received_bytes bigint,
+  sent_bytes bigint,
+  request_verb string,
+  request_url string,
+  request_proto string,
+  user_agent string,
+  ssl_cipher string,
+  ssl_protocol string,
+  target_group_arn string,
+  trace_id string,
+  domain_name string,
+  chosen_cert_arn string,
+  matched_rule_priority string,
+  request_creation_time string,
+  actions_executed string,
+  redirect_url string,
+  error_reason string
+)
+ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.RegexSerDe'
+WITH SERDEPROPERTIES (
+  'serialization.format' = '1',
+  'input.regex' = '([^ ]*) ([^ ]*) ([^ ]*) ([^ ]*):([0-9]*) ([^ ]*)[:-]([0-9]*) ([-.0-9]*) ([-.0-9]*) ([-.0-9]*) ([-0-9]*) ([-0-9]*) ([-0-9]*) \"([^ ]*) ([^ ]*) (- |[^ ]*)\" \"([^\"]*)\" ([A-Z0-9-]+) ([A-Za-z0-9.-]*) ([^ ]*) \"([^\"]*)\" \"([^\"]*)\" \"([^\"]*)\" ([-.0-9]*) ([^ ]*) \"([^\"]*)\" \"([^\"]*)\" ?([^ ]*)'
+)
+LOCATION 's3://<log_bucket>/alb/'
+TBLPROPERTIES ('skip.header.line.count' = '0');
+```
+
+**Top client IPs (last 7 days):**
+
+```sql
+SELECT client_ip, count(*) AS requests
+FROM alb_access_logs
+WHERE from_iso8601_timestamp(time) > now() - interval '7' day
+GROUP BY client_ip
+ORDER BY requests DESC
+LIMIT 20;
+```
+
+**5xx error rate by hour:**
+
+```sql
+SELECT date_trunc('hour', from_iso8601_timestamp(time)) AS hour,
+       count_if(elb_status_code >= 500) * 100.0 / count(*) AS pct_5xx,
+       count(*) AS requests
+FROM alb_access_logs
+WHERE from_iso8601_timestamp(time) > now() - interval '24' hour
+GROUP BY 1
+ORDER BY 1 DESC;
+```
+
+**Slow requests (target processing time above 2s):**
+
+```sql
+SELECT time, client_ip, request_verb, request_url, target_processing_time, elb_status_code
+FROM alb_access_logs
+WHERE target_processing_time > 2.0
+ORDER BY target_processing_time DESC
+LIMIT 50;
+```
+
+**Most requested paths:**
+
+```sql
+SELECT regexp_extract(request_url, '^[^?]*', 0) AS path, count(*) AS requests
+FROM alb_access_logs
+WHERE from_iso8601_timestamp(time) > now() - interval '24' hour
+GROUP BY 1
+ORDER BY requests DESC
+LIMIT 20;
+```
+
+### Querying with CloudWatch Logs Insights
+
+If the bucket is also subscribed to CloudWatch Logs (or logs are shipped via a subscription filter), use Logs Insights:
+
+```text
+# Top client IPs
+fields @timestamp, client_ip
+| stats count(*) as requests by client_ip
+| sort requests desc
+| limit 20
+```
+
+```text
+# 5xx rate per 5 minutes
+fields @timestamp, elb_status_code
+| stats count(*) as total, sum(elb_status_code >= 500) as errors by bin(5m)
+| fields bin(5m) as window, errors * 100.0 / total as pct_5xx
+```
+
+```text
+# Slow requests
+fields @timestamp, client_ip, request_url, target_processing_time
+| filter target_processing_time > 2.0
+| sort target_processing_time desc
+| limit 50
+```
+
+```text
+# Most requested paths
+fields request_url
+| parse request_url /^(?<path>[^?]*)/
+| stats count(*) as requests by path
+| sort requests desc
+| limit 20
+```
+
+### Verifying the change
+
+Before applying, run `terraform plan` in the environment directory and confirm it shows **no destructive changes** — only the new log bucket, its encryption/versioning/lifecycle configuration, and the `access_logs` block on the ALB should appear. After applying, wait for the first log delivery interval and run one of the queries above to confirm logs are queryable.
+
+---
+
 ## OpenTelemetry Distributed Tracing
+=======
 
 scoopdope uses the [OpenTelemetry Node.js SDK](https://opentelemetry.io/docs/instrumentation/js/) to trace all API requests end-to-end, including PostgreSQL queries and Redis operations.
 
