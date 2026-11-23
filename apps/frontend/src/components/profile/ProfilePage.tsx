@@ -410,9 +410,11 @@ export function ProfilePage() {
               {/* Preview */}
               <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0">
                 {avatarPreview ? (
-                  <img
+                  <Image
                     src={avatarPreview}
                     alt="Avatar preview"
+                    width={80}
+                    height={80}
                     className="w-full h-full object-cover"
                   />
                 ) : user.avatarUrl ? (

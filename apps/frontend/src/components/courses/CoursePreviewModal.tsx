@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import { X } from 'lucide-react';
 
 interface Lesson {
@@ -220,9 +221,11 @@ export const CoursePreviewModal: React.FC<CoursePreviewModalProps> = ({
               <div className="space-y-6">
                 <div className="flex items-start space-x-4">
                   {course.instructor.avatar ? (
-                    <img
+                    <Image
                       src={course.instructor.avatar}
                       alt={`${course.instructor.name}, course instructor`}
+                      width={80}
+                      height={80}
                       className="w-20 h-20 rounded-full object-cover"
                     />
                   ) : (
