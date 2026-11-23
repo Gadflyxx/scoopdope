@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Image from 'next/image';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 
@@ -157,7 +158,7 @@ export function TwoFactorAuthentication({ mfaEnabled, onStatusChange }: TwoFacto
       {qrCodeDataUrl && currentAction === 'setup' ? (
         <div className="space-y-4 rounded-xl border border-dashed border-gray-200 dark:border-gray-700 p-4">
           <div className="grid gap-4 md:grid-cols-[180px,1fr] items-center">
-            <img src={qrCodeDataUrl} alt="MFA QR code" className="w-full max-w-xs rounded-xl border border-gray-200 dark:border-gray-700" />
+            <Image src={qrCodeDataUrl} alt="MFA QR code" width={180} height={180} className="w-full max-w-xs rounded-xl border border-gray-200 dark:border-gray-700" />
             <div className="space-y-2 text-sm text-gray-600 dark:text-gray-300">
               <p>Scan this QR code with your authenticator app.</p>
               <p>Then enter the 6-digit code below to complete setup.</p>

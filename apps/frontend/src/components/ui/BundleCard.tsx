@@ -1,4 +1,5 @@
 import React from 'react';
+import Image from 'next/image';
 import { Card } from './Card';
 import { Button } from './Button';
 import { Package, ChevronRight, CheckCircle2 } from 'lucide-react';
@@ -38,9 +39,9 @@ export const BundleCard: React.FC<BundleCardProps> = ({
 
   return (
     <Card className="flex flex-col h-full overflow-hidden border-blue-100 dark:border-blue-900/30 hover:shadow-xl transition-all group">
-      <div className="relative h-48 bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
+      <div className="relative h-48 bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center overflow-hidden">
         {bundle.thumbnailUrl ? (
-          <img src={bundle.thumbnailUrl} alt={`${bundle.title} bundle thumbnail`} className="w-full h-full object-cover" />
+          <Image src={bundle.thumbnailUrl} alt={`${bundle.title} bundle thumbnail`} fill className="w-full h-full object-cover" />
         ) : (
           <Package className="w-16 h-16 text-blue-200 dark:text-blue-800" />
         )}
