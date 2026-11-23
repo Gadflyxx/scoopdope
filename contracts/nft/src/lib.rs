@@ -13,6 +13,7 @@ pub enum DataKey {
     RoyaltyBasis(u32),                // nft_id -> royalty basis points
     RoyaltyRecipient(u32),            // nft_id -> instructor address
     AccessRights(u32, Address),       // (nft_id, holder) -> has_access
+    CompletionNFT(Address, Symbol),   // (owner, course_id) -> nft_id
 }
 
 #[contracttype]
@@ -120,6 +121,87 @@ impl NFTContract {
         );
 
         nft_id
+    }
+
+    /// Mint a non-transferable completion badge NFT for a learner who finished a course.
+    /// Returns the newly minted NFT id. Reverts if the learner already holds a
+    /// completion NFT for the given course.
+    pub fn mint_completion_nft(
+        env: Env,
+        admin: Address,
+        owner: Address,
+        course_id: Symbol,
+        course_name: String,
+    ) -> u32 {
+        admin.require_auth();
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        assert!(admin == stored_admin, "Only admin can mint");
+
+        let completion_key = DataKey::CompletionNFT(owner.clone(), course_id.clone());
+        assert!(
+            !env.storage().instance().has(&completion_key),
+            "Completion NFT already minted"
+        );
+
+        let nft_id_key = DataKey::NextNFTId;
+        let nft_id: u32 = env.storage().instance().get(&nft_id_key).unwrap_or(0);
+
+        let metadata = NFTMetadata {
+            nft_id,
+            course_id: course_id.clone(),
+            course_name,
+            owner: owner.clone(),
+            purchase_date: env.ledger().timestamp(),
+            royalty_basis: 0,
+        };
+
+        env.storage()
+            .instance()
+            .set(&DataKey::NFTMetadata(nft_id), &metadata);
+        env.storage()
+            .instance()
+            .set(&DataKey::NFTOwner(nft_id), &owner);
+        env.storage()
+            .instance()
+            .set(&DataKey::RoyaltyBasis(nft_id), &0_u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::RoyaltyRecipient(nft_id), &owner);
+
+        // Add to owner's NFT list
+        let owner_key = DataKey::CourseNFTs(owner.clone());
+        let mut nfts: Vec<u32> = env
+            .storage()
+            .instance()
+            .get(&owner_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        nfts.push_back(nft_id);
+        env.storage().instance().set(&owner_key, &nfts);
+
+        // Grant access to owner
+        env.storage()
+            .instance()
+            .set(&DataKey::AccessRights(nft_id, owner.clone()), &true);
+
+        // Record completion so the same course cannot be minted twice
+        env.storage().instance().set(&completion_key, &nft_id);
+
+        env.storage()
+            .instance()
+            .set(&nft_id_key, &(nft_id + 1));
+
+        env.events().publish(
+            (symbol_short!("nft"), symbol_short!("completion")),
+            (nft_id, course_id, owner),
+        );
+
+        nft_id
+    }
+
+    pub fn get_completion_nft(env: Env, owner: Address, course_id: Symbol) -> Option<u32> {
+        env.storage()
+            .instance()
+            .get(&DataKey::CompletionNFT(owner, course_id))
     }
 
     pub fn transfer_nft(env: Env, from: Address, to: Address, nft_id: u32) {
