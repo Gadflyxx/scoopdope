@@ -6,6 +6,7 @@ export class MetricsService {
   readonly httpRequestsTotal: Counter;
   readonly httpRequestDuration: Histogram;
   readonly credentialIssuedTotal: Counter;
+  readonly credentialsIssuedTotal: Counter;
   readonly bstMintedTotal: Counter;
   readonly stellarRpcLatency: Histogram;
   readonly stellarRpcTimeouts: Counter;
@@ -23,6 +24,7 @@ export class MetricsService {
   readonly coursesCompletedTotal: Counter;
   readonly recommendationsServedTotal: Counter;
   readonly activeUsersGauge: Gauge;
+  readonly activeSessions: Gauge;
 
   constructor() {
     this.httpRequestsTotal = new Counter({
@@ -42,6 +44,13 @@ export class MetricsService {
 
     this.credentialIssuedTotal = new Counter({
       name: 'credential_issued_total',
+      help: 'Total number of credentials issued',
+      labelNames: ['credential_type'],
+      registers: [register],
+    });
+
+    this.credentialsIssuedTotal = new Counter({
+      name: 'credentials_issued_total',
       help: 'Total number of credentials issued',
       labelNames: ['credential_type'],
       registers: [register],
@@ -163,6 +172,12 @@ export class MetricsService {
       registers: [register],
     });
 
+    this.activeSessions = new Gauge({
+      name: 'active_sessions',
+      help: 'Number of currently active sessions',
+      registers: [register],
+    });
+
     setInterval(() => {
       this.uptimeGauge.set(process.uptime());
     }, 15000);
@@ -186,6 +201,7 @@ export class MetricsService {
 
   incrementCredentialIssued(credentialType: string) {
     this.credentialIssuedTotal.inc({ credential_type: credentialType });
+    this.credentialsIssuedTotal.inc({ credential_type: credentialType });
   }
 
   incrementBstMinted(userId: string) {
@@ -268,5 +284,17 @@ export class MetricsService {
 
   setActiveUsers(window: string, count: number) {
     this.activeUsersGauge.set({ window }, count);
+  }
+
+  setActiveSessions(count: number) {
+    this.activeSessions.set(count);
+  }
+
+  incrementActiveSessions() {
+    this.activeSessions.inc();
+  }
+
+  decrementActiveSessions() {
+    this.activeSessions.dec();
   }
 }

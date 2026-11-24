@@ -75,7 +75,11 @@ export class MailService {
     });
   }
 
-  /** Generic helper for services that need to send a custom email. */
+  /**
+   * Generic helper for services that need to send a custom email.
+   * Respects the `mail.enabled` flag and logs the email in development
+   * instead of dispatching it when mail is disabled.
+   */
   async sendEmail(to: string, subject: string, html: string): Promise<void> {
     if (!this.configService.get<boolean>('mail.enabled')) {
       this.logger.log(`[DEV] Email to ${to} — Subject: ${subject}`);

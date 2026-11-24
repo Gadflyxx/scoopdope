@@ -2,7 +2,12 @@ import { Request, Response, NextFunction } from 'express';
 import client from 'prom-client';
 
 // Collect default Node.js process metrics (CPU, memory, event loop, etc.)
-client.collectDefaultMetrics({ prefix: 'app_' });
+// Guard against double-registration when the NestJS Prometheus module also
+// collects default metrics against the same registry.
+if (!(client.register as unknown as { _defaultMetricsStarted?: boolean })._defaultMetricsStarted) {
+  client.collectDefaultMetrics({ prefix: 'app_' });
+  (client.register as unknown as { _defaultMetricsStarted?: boolean })._defaultMetricsStarted = true;
+}
 
 // Histogram tracking HTTP request durations in seconds, labelled by method,
 // route and status code so endpoint response times can be monitored.
@@ -45,7 +50,28 @@ export function metricsMiddleware(req: Request, res: Response, next: NextFunctio
 }
 
 /**
- * Express handler exposing the Prometheus registry for scraping.
+ * Bearer-token guard for the metrics endpoint. The expected token is read from
+ * the METRICS_TOKEN environment variable; when unset the endpoint is disabled
+ * and always responds with 401.
+ */
+export function metricsAuth(req: Request, res: Response, next: NextFunction): void {
+  const expected = process.env.METRICS_TOKEN;
+  const header = req.headers.authorization ?? '';
+  const [scheme, token] = header.split(' ');
+
+  if (!expected || scheme !== 'Bearer' || token !== expected) {
+    res.setHeader('WWW-Authenticate', 'Bearer');
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  next();
+}
+
+/**
+ * Express handler exposing the Prometheus registry for scraping. Uses the
+ * default registry so metrics registered by the NestJS Prometheus module
+ * (MetricsService) are included in the output.
  */
 export async function metricsEndpoint(_req: Request, res: Response): Promise<void> {
   res.setHeader('Content-Type', client.register.contentType);

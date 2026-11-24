@@ -29,7 +29,7 @@ export class LessonsService {
 
   async create(moduleId: string, data: Partial<Lesson>) {
     const lesson = await this.repo.save(this.repo.create({ ...data, moduleId }));
-    await this.searchService.indexLesson(lesson).catch(() => {});
+    await this.indexLesson(lesson);
 
     if (lesson.videoUrl) {
       this.triggerTranscription(lesson);
@@ -44,13 +44,46 @@ export class LessonsService {
 
     const oldVideoUrl = lesson.videoUrl;
     const updated = await this.repo.save({ ...lesson, ...data });
-    await this.searchService.indexLesson(updated).catch(() => {});
+    await this.indexLesson(updated);
 
     if (updated.videoUrl && updated.videoUrl !== oldVideoUrl) {
       this.triggerTranscription(updated);
     }
 
     return updated;
+  }
+
+  /**
+   * Index a lesson into the search index, including its title and body content
+   * so that keyword searches matching only the lesson body still return the lesson.
+   * The document also carries courseId and moduleId for result linking.
+   */
+  private async indexLesson(lesson: Lesson) {
+    try {
+      const courseId = await this.resolveCourseId(lesson.moduleId);
+      await this.searchService.indexLesson({
+        ...lesson,
+        courseId,
+      } as Lesson & { courseId?: string });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to index lesson ${lesson.id} for search: ${message}`);
+    }
+  }
+
+  private async resolveCourseId(moduleId: string): Promise<string | undefined> {
+    if (!moduleId) return undefined;
+    try {
+      const rows = await this.repo.manager.query(
+        `SELECT "courseId" FROM course_modules WHERE id = $1`,
+        [moduleId],
+      );
+      return rows[0]?.courseId;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to resolve courseId for module ${moduleId}: ${message}`);
+      return undefined;
+    }
   }
 
   private async triggerTranscription(lesson: Lesson) {

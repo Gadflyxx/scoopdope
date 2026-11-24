@@ -19,6 +19,24 @@ import {
 import { HealthSystemInfo, HealthEnvironmentInfo, ProbeResult, ProbeCheckResult } from './health.types';
 import { MigrationRunnerService } from '../database/migrations/migration-runner.service';
 
+export type DependencyStatus = 'ok' | 'degraded' | 'down';
+
+export interface DependencyCheckResult {
+  status: 'up' | 'down';
+  latencyMs?: number;
+  message?: string;
+}
+
+export interface DependencyHealthResult {
+  status: DependencyStatus;
+  checks: {
+    db: DependencyCheckResult;
+    redis: DependencyCheckResult;
+    stellar: DependencyCheckResult;
+  };
+  timestamp: string;
+}
+
 @Injectable()
 export class HealthService implements OnModuleInit {
   private readonly startTime = new Date();
@@ -114,29 +132,31 @@ export class HealthService implements OnModuleInit {
       };
     }
 
+    const dependencyResult = await this.checkDependencies();
+
     const result: ProbeResult = {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      checks: {},
+      status: dependencyResult.status === 'down' ? 'error' : 'ok',
+      timestamp: dependencyResult.timestamp,
+      checks: {
+        database: {
+          status: dependencyResult.checks.db.status,
+          latencyMs: dependencyResult.checks.db.latencyMs,
+          message: dependencyResult.checks.db.message,
+        },
+        redis: {
+          status: dependencyResult.checks.redis.status,
+          latencyMs: dependencyResult.checks.redis.latencyMs,
+          message: dependencyResult.checks.redis.message,
+        },
+        stellar: {
+          status: dependencyResult.checks.stellar.status,
+          latencyMs: dependencyResult.checks.stellar.latencyMs,
+          message: dependencyResult.checks.stellar.message,
+        },
+      },
     };
 
-    await this.withCache('readiness-db', async () => {
-      try {
-        await this.db.pingCheck('database', { timeout: 3000 });
-        result.checks['database'] = { status: 'up' };
-      } catch {
-        result.checks['database'] = { status: 'down', message: 'Database unreachable' };
-        result.status = 'error';
-      }
-    });
-
-    await this.withCache('readiness-redis', async () => {
-      const redisResult = await this.checkRedis();
-      result.checks['redis'] = redisResult;
-      if (redisResult.status !== 'up') {
-        result.status = 'error';
-      }
-    });
+    this.healthGauge.set({ probe: 'readiness' }, result.status === 'ok' ? 1 : 0);
 
     await this.withCache('readiness-migrations', async () => {
       const migrationResult = await this.checkMigrations();
@@ -147,6 +167,75 @@ export class HealthService implements OnModuleInit {
     });
 
     return result;
+  }
+
+  /**
+   * Aggregated dependency health check used by GET /health.
+   * - Redis down => degraded
+   * - Database or Stellar down => down
+   */
+  async checkDependencies(): Promise<DependencyHealthResult> {
+    const [db, redis, stellar] = await Promise.all([
+      this.checkDatabase(),
+      this.checkRedisDependency(),
+      this.checkStellar(),
+    ]);
+
+    let status: DependencyStatus = 'ok';
+    if (db.status === 'down' || stellar.status === 'down') {
+      status = 'down';
+    } else if (redis.status === 'down') {
+      status = 'degraded';
+    }
+
+    this.healthGauge.set({ probe: 'dependencies' }, status === 'down' ? 0 : 1);
+
+    return {
+      status,
+      checks: { db, redis, stellar },
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  private async checkDatabase(): Promise<DependencyCheckResult> {
+    const start = Date.now();
+    try {
+      await this.db.pingCheck('database', { timeout: 3000 });
+      return { status: 'up', latencyMs: Date.now() - start };
+    } catch {
+      return {
+        status: 'down',
+        message: 'Database unreachable',
+        latencyMs: Date.now() - start,
+      };
+    }
+  }
+
+  private async checkRedisDependency(): Promise<DependencyCheckResult> {
+    const result = await this.checkRedis();
+    return {
+      status: result.status === 'up' ? 'up' : 'down',
+      latencyMs: result.latencyMs,
+      message: result.message,
+    };
+  }
+
+  private async checkStellar(): Promise<DependencyCheckResult> {
+    const start = Date.now();
+    try {
+      const stellarCheck = await this.stellar.check('stellar');
+      const details = stellarCheck['stellar'];
+      return {
+        status: 'up',
+        latencyMs: typeof details?.latencyMs === 'number' ? details.latencyMs : Date.now() - start,
+      };
+    } catch {
+      return {
+        status: 'down',
+        message: 'Stellar RPC is unreachable',
+        latencyMs: Date.now() - start,
+      };
+    }
   }
 
   async checkStartup(): Promise<ProbeResult> {

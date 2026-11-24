@@ -17,10 +17,13 @@ const applicationMessages = {
       'Thank you for applying to become an instructor. We will review your application and email you when a decision is made.',
     approvedSubject: 'Application Approved',
     approvedTitle: 'Your instructor application is approved',
-    approvedBody: 'Congratulations! You are now approved to teach on ScoopDope.',
+    approvedBody:
+      'Congratulations! The instructor role has been granted to your account and you can start creating courses right away.',
     rejectedSubject: 'Application Rejected',
     rejectedTitle: 'Your instructor application was not approved',
     rejectedBody: 'Thank you for your interest in teaching on ScoopDope. Reviewer feedback:',
+    rejectedReasonLabel: 'Reason',
+    rejectedNoReason: 'No specific reason was provided.',
     greeting: 'Hello',
   },
   es: {
@@ -30,10 +33,13 @@ const applicationMessages = {
       'Gracias por solicitar convertirte en instructor. Revisaremos tu solicitud y te enviaremos un correo cuando tomemos una decisión.',
     approvedSubject: 'Solicitud aprobada',
     approvedTitle: 'Tu solicitud para ser instructor ha sido aprobada',
-    approvedBody: '¡Enhorabuena! Ya puedes impartir cursos en ScoopDope.',
+    approvedBody:
+      '¡Enhorabuena! Se ha concedido el rol de instructor a tu cuenta y ya puedes empezar a crear cursos.',
     rejectedSubject: 'Solicitud rechazada',
     rejectedTitle: 'Tu solicitud para ser instructor no ha sido aprobada',
     rejectedBody: 'Gracias por tu interés en enseñar en ScoopDope. Comentarios del revisor:',
+    rejectedReasonLabel: 'Motivo',
+    rejectedNoReason: 'No se proporcionó un motivo específico.',
     greeting: 'Hola',
   },
   fr: {
@@ -43,11 +49,14 @@ const applicationMessages = {
       'Merci d’avoir souhaité devenir formateur. Nous étudierons votre candidature et vous informerons par e-mail de notre décision.',
     approvedSubject: 'Candidature approuvée',
     approvedTitle: 'Votre candidature pour enseigner est approuvée',
-    approvedBody: 'Félicitations ! Vous pouvez désormais enseigner sur ScoopDope.',
+    approvedBody:
+      'Félicitations ! Le rôle de formateur a été attribué à votre compte et vous pouvez dès maintenant créer des cours.',
     rejectedSubject: 'Candidature rejetée',
     rejectedTitle: 'Votre candidature pour enseigner n’a pas été approuvée',
     rejectedBody:
       'Merci de votre intérêt pour ScoopDope. Commentaire de la personne chargée de l’examen :',
+    rejectedReasonLabel: 'Motif',
+    rejectedNoReason: 'Aucun motif précis n’a été fourni.',
     greeting: 'Bonjour',
   },
   ar: {
@@ -57,10 +66,13 @@ const applicationMessages = {
       'شكرًا لتقديم طلبك لتصبح مدرّسًا. سنراجع طلبك ونرسل إليك بريدًا إلكترونيًا عند اتخاذ القرار.',
     approvedSubject: 'تمت الموافقة على الطلب',
     approvedTitle: 'تمت الموافقة على طلبك لتصبح مدرّسًا',
-    approvedBody: 'تهانينا! يمكنك الآن التدريس على ScoopDope.',
+    approvedBody:
+      'تهانينا! تم منح دور المدرّس لحسابك ويمكنك البدء في إنشاء الدورات على الفور.',
     rejectedSubject: 'تم رفض الطلب',
     rejectedTitle: 'لم تتم الموافقة على طلبك لتصبح مدرّسًا',
     rejectedBody: 'شكرًا لاهتمامك بالتدريس على ScoopDope. ملاحظات المراجع:',
+    rejectedReasonLabel: 'السبب',
+    rejectedNoReason: 'لم يتم تقديم سبب محدد.',
     greeting: 'مرحبًا',
   },
 };
@@ -263,15 +275,17 @@ const wrapEmail = (locale: string | undefined, innerHtml: string) => {
 
 const applicationTemplate = (
   kind: 'received' | 'approved' | 'rejected',
-  data: { userName: string; locale?: string; adminNote?: string | null }
+  data: { userName: string; locale?: string; adminNote?: string | null; rejectionReason?: string | null }
 ) => {
   const locale = (data.locale || 'en').split('-')[0] as ApplicationLocale;
   const messages = applicationMessages[locale] || applicationMessages.en;
   const title = messages[`${kind}Title`];
   const body = messages[`${kind}Body`];
+  const reason = (data.rejectionReason ?? data.adminNote ?? '').trim();
   const reviewerFeedback =
-    kind === 'rejected' && data.adminNote
-      ? `<blockquote>${escapeHtml(data.adminNote)}</blockquote>`
+    kind === 'rejected'
+      ? `<p><strong>${messages.rejectedReasonLabel}:</strong></p>
+      <blockquote>${escapeHtml(reason || messages.rejectedNoReason)}</blockquote>`
       : '';
 
   const inner = `
@@ -367,8 +381,12 @@ export const emailTemplates = {
   applicationApproved: (data: { userName: string; locale?: string }) =>
     applicationTemplate('approved', data),
 
-  applicationRejected: (data: { userName: string; locale?: string; adminNote?: string | null }) =>
-    applicationTemplate('rejected', data),
+  applicationRejected: (data: {
+    userName: string;
+    locale?: string;
+    adminNote?: string | null;
+    rejectionReason?: string | null;
+  }) => applicationTemplate('rejected', data),
 
   newQuestion: (data: {
     userName: string;

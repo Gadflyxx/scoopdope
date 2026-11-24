@@ -6,8 +6,24 @@ import { SearchAnalytic } from './search-analytic.entity';
 import { Course } from '../courses/course.entity';
 import { Lesson } from '../courses/lesson.entity';
 import { Post } from '../forums/post.entity';
+import { User } from '../users/user.entity';
 
-export type IndexName = 'courses' | 'lessons' | 'posts';
+export type IndexName = 'courses' | 'lessons' | 'posts' | 'users';
+
+export type SearchResultType = 'course' | 'lesson' | 'instructor';
+
+export interface SearchResult {
+  id: string;
+  type: SearchResultType;
+  score: number;
+  title?: string;
+  description?: string;
+  content?: string;
+  username?: string;
+  bio?: string;
+  avatar?: string;
+  highlight?: Record<string, string[]>;
+}
 
 @Injectable()
 export class SearchService implements OnModuleInit {
@@ -16,7 +32,13 @@ export class SearchService implements OnModuleInit {
   constructor(
     private readonly es: ElasticsearchService,
     @InjectRepository(SearchAnalytic)
-    private readonly analyticsRepo: Repository<SearchAnalytic>
+    private readonly analyticsRepo: Repository<SearchAnalytic>,
+    @InjectRepository(Course)
+    private readonly courseRepo: Repository<Course>,
+    @InjectRepository(Lesson)
+    private readonly lessonRepo: Repository<Lesson>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>
   ) {}
 
   onModuleInit() {
@@ -63,6 +85,17 @@ export class SearchService implements OnModuleInit {
             content: { type: 'text', analyzer: 'standard' },
             courseId: { type: 'keyword' },
             userId: { type: 'keyword' },
+            suggest: { type: 'completion' },
+          },
+        },
+      },
+      users: {
+        mappings: {
+          properties: {
+            username: { type: 'text', analyzer: 'standard', copy_to: 'suggest' },
+            bio: { type: 'text', analyzer: 'standard' },
+            role: { type: 'keyword' },
+            avatar: { type: 'keyword' },
             suggest: { type: 'completion' },
           },
         },
@@ -128,6 +161,20 @@ export class SearchService implements OnModuleInit {
     });
   }
 
+  async indexInstructor(user: User) {
+    await this.es.index({
+      index: 'users',
+      id: user.id,
+      document: {
+        username: user.username,
+        bio: user.bio,
+        role: user.role,
+        avatar: user.avatar,
+        suggest: { input: [user.username] },
+      },
+    });
+  }
+
   async deleteFromIndex(index: IndexName, id: string) {
     try {
       await this.es.delete({ index, id });
@@ -138,42 +185,126 @@ export class SearchService implements OnModuleInit {
 
   // ─── Search ────────────────────────────────────────────────────────────────
 
+  /**
+   * Full-text search across courses, lessons and instructor profiles using
+   * Postgres full-text search. Results are filtered by `type` when provided
+   * and ranked by ts_rank descending.
+   */
   async search(
     query: string,
-    indices: IndexName[] = ['courses', 'lessons', 'posts'],
+    type?: SearchResultType,
     userId?: string
-  ) {
-    const response = await this.es.search({
-      index: indices.join(','),
-      query: {
-        multi_match: {
-          query,
-          fields: ['title^3', 'description^2', 'content'],
-          fuzziness: 'AUTO',
-          prefix_length: 1,
-        },
-      },
-      highlight: {
-        fields: { title: {}, description: {}, content: {} },
-      },
-      size: 20,
-    });
+  ): Promise<{ total: number; hits: SearchResult[] }> {
+    const trimmed = (query ?? '').trim();
+    if (!trimmed) {
+      return { total: 0, hits: [] };
+    }
 
-    const hits = response.hits.hits.map((hit) => ({
-      id: hit._id,
-      type: hit._index,
-      score: hit._score,
-      ...hit._source as object,
-      highlight: hit.highlight,
-    }));
+    const hits: SearchResult[] = [];
 
-    await this.trackAnalytic(query, hits.length, userId);
-    return { total: response.hits.total, hits };
+    if (!type || type === 'course') {
+      const rows = await this.courseRepo
+        .createQueryBuilder('c')
+        .select('c.id', 'id')
+        .addSelect('c.title', 'title')
+        .addSelect('c.description', 'description')
+        .addSelect(
+          `ts_rank(to_tsvector('english', coalesce(c.title, '') || ' ' || coalesce(c.description, '')), plainto_tsquery('english', :q))`,
+          'rank'
+        )
+        .where(
+          `to_tsvector('english', coalesce(c.title, '') || ' ' || coalesce(c.description, '')) @@ plainto_tsquery('english', :q)`,
+          { q: trimmed }
+        )
+        .getRawMany<{ id: string; title: string; description: string; rank: string }>();
+
+      for (const row of rows) {
+        hits.push({
+          id: row.id,
+          type: 'course',
+          score: Number(row.rank),
+          title: row.title,
+          description: row.description,
+        });
+      }
+    }
+
+    if (!type || type === 'lesson') {
+      const rows = await this.lessonRepo
+        .createQueryBuilder('l')
+        .select('l.id', 'id')
+        .addSelect('l.title', 'title')
+        .addSelect('l.content', 'content')
+        .addSelect(
+          `ts_rank(to_tsvector('english', coalesce(l.title, '') || ' ' || coalesce(l.content, '')), plainto_tsquery('english', :q))`,
+          'rank'
+        )
+        .where(
+          `to_tsvector('english', coalesce(l.title, '') || ' ' || coalesce(l.content, '')) @@ plainto_tsquery('english', :q)`,
+          { q: trimmed }
+        )
+        .getRawMany<{ id: string; title: string; content: string; rank: string }>();
+
+      for (const row of rows) {
+        hits.push({
+          id: row.id,
+          type: 'lesson',
+          score: Number(row.rank),
+          title: row.title,
+          content: row.content,
+        });
+      }
+    }
+
+    if (!type || type === 'instructor') {
+      const rows = await this.userRepo
+        .createQueryBuilder('u')
+        .select('u.id', 'id')
+        .addSelect('u.username', 'username')
+        .addSelect('u.bio', 'bio')
+        .addSelect('u.avatar', 'avatar')
+        .addSelect(
+          `ts_rank(to_tsvector('english', coalesce(u.username, '') || ' ' || coalesce(u.bio, '')), plainto_tsquery('english', :q))`,
+          'rank'
+        )
+        .where('u.role = :role', { role: 'instructor' })
+        .andWhere(
+          `to_tsvector('english', coalesce(u.username, '') || ' ' || coalesce(u.bio, '')) @@ plainto_tsquery('english', :q)`,
+          { q: trimmed }
+        )
+        .getRawMany<{
+          id: string;
+          username: string;
+          bio: string;
+          avatar: string;
+          rank: string;
+        }>();
+
+      for (const row of rows) {
+        hits.push({
+          id: row.id,
+          type: 'instructor',
+          score: Number(row.rank),
+          username: row.username,
+          bio: row.bio,
+          avatar: row.avatar,
+        });
+      }
+    }
+
+    hits.sort((a, b) => b.score - a.score);
+    const limited = hits.slice(0, 20);
+
+    await this.trackAnalytic(trimmed, limited.length, userId);
+    return { total: limited.length, hits: limited };
   }
 
   // ─── Autocomplete ──────────────────────────────────────────────────────────
 
-  async autocomplete(prefix: string, indices: IndexName[] = ['courses', 'lessons', 'posts']) {
+  async autocomplete(
+    prefix: string,
+    indices: IndexName[] = ['courses', 'lessons', 'posts', 'users']
+  ) {
     const response = await this.es.search({
       index: indices.join(','),
       suggest: {

@@ -24,46 +24,44 @@ export class HealthController {
    * GET /health
    *
    * Primary health check endpoint for load balancers and monitoring systems.
-    * Tests database, Redis, and Stellar Horizon connectivity.
-   * - Returns 200 with status:"ok" when all critical services are healthy.
-   * - Returns 503 with status:"error" when any critical dependency is down.
+   * Tests database, Redis, and Stellar RPC connectivity.
+   * - Returns 200 with status:"ok" when all dependencies are healthy.
+   * - Returns 200 with status:"degraded" when only non-critical dependencies are down.
+   * - Returns 503 with status:"down" when any critical dependency (database) is down.
    * - Does NOT require authentication.
    */
   @Get()
   @ApiOperation({
     summary: 'Health check',
     description:
-      'Returns health status of the application. Checks database, Redis, and Stellar Horizon connectivity. ' +
-      'Returns 200 when all critical services are healthy, 503 when any critical dependency is down. ' +
-      'No authentication required.',
+      'Returns health status of the application. Checks database, Redis, and Stellar RPC connectivity. ' +
+      'Returns 200 when status is "ok" or "degraded", 503 when status is "down" ' +
+      '(any critical dependency unavailable). No authentication required.',
   })
   @ApiResponse({
     status: 200,
-    description: 'All services healthy',
+    description: 'All dependencies healthy, or only non-critical dependencies degraded',
     schema: {
       example: {
         status: 'ok',
-        timestamp: '2026-08-30T10:00:00.000Z',
         checks: {
-          database: { status: 'up' },
+          db: { status: 'up' },
           redis: { status: 'up' },
           stellar: { status: 'up' },
-          memory_heap: { status: 'up' },
-          memory_rss: { status: 'up' },
         },
       },
     },
   })
   @ApiResponse({
     status: 503,
-    description: 'One or more services unhealthy',
+    description: 'One or more critical dependencies down',
     schema: {
       example: {
-        status: 'error',
-        timestamp: '2026-08-30T10:00:00.000Z',
+        status: 'down',
         checks: {
-          database: { status: 'down', message: 'Database unreachable' },
+          db: { status: 'down', message: 'Database unreachable' },
           redis: { status: 'up' },
+          stellar: { status: 'up' },
         },
       },
     },
@@ -80,8 +78,8 @@ export class HealthController {
       status: result.status,
     });
 
-    // Return 503 when critical services are down so load balancers can route away
-    if (result.status === 'error') {
+    // Return 503 only when a critical dependency is down so load balancers can route away
+    if (result.status === 'down') {
       throw new ServiceUnavailableException(result);
     }
 
@@ -117,20 +115,47 @@ export class HealthController {
    *
    * Readiness probe — checks whether the app can serve traffic.
    * Used by Kubernetes/load balancers to decide whether to route requests here.
+   * Returns 503 if any critical dependency (database) is down.
    */
   @Get('ready')
   @ApiOperation({
     summary: 'Readiness probe',
     description:
-      'Readiness probe for load balancers and container orchestrators. Checks if the ' +
-      'application can serve traffic (DB, Redis).',
+      'Readiness probe for load balancers and container orchestrators. Returns 200 if the ' +
+      'application can serve traffic, 503 if any critical dependency (database) is down.',
   })
-  @ApiResponse({ status: 200, description: 'Application is ready to serve traffic' })
-  @ApiResponse({ status: 503, description: 'Application is not ready' })
+  @ApiResponse({
+    status: 200,
+    description: 'Application is ready to serve traffic',
+    schema: {
+      example: {
+        status: 'ok',
+        checks: {
+          db: { status: 'up' },
+          redis: { status: 'up' },
+          stellar: { status: 'up' },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 503,
+    description: 'Application is not ready (critical dependency down)',
+    schema: {
+      example: {
+        status: 'down',
+        checks: {
+          db: { status: 'down', message: 'Database unreachable' },
+          redis: { status: 'up' },
+          stellar: { status: 'up' },
+        },
+      },
+    },
+  })
   @ApiResponse({ status: 429, description: 'Too many requests' })
   async checkReadiness() {
     const result = await this.healthService.checkReadiness();
-    if (result.status === 'error') {
+    if (result.status === 'down') {
       throw new ServiceUnavailableException(result);
     }
     return result;
