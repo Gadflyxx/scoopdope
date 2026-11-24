@@ -148,11 +148,68 @@ export class AddCourseCategory1700000000000 implements MigrationInterface {
 
 ### Production Deployment Workflow
 
-1. **Backup database**: Always create a backup before running migrations
-2. **Deploy code**: Deploy the new Docker image including migration files
-3. **Run migrations**: `node dist/main migration:run`
-4. **Verify**: Check the migration status via `POST /v1/database/migrations` API
+Migrations are now run **automatically** as part of the CI/CD deployment pipeline. The pipeline executes the following steps on every deployment:
+
+1. **Backup database**: The pipeline creates a verified backup before any migration runs
+2. **Run migrations**: `node dist/main migration:run` executes all pending migrations **before** the new application version starts
+3. **Start application**: Only if the migration step succeeds is the new release rolled out and the application started
+4. **Verify**: The health-check workflow runs `migration:status` and alerts if any migrations are still pending (see [Migration Status Health Check](#migration-status-health-check))
 5. **Monitor**: Watch for errors in application logs
+
+#### Failure handling and rollback to the previous release
+
+If the migration step fails, the deployment is **halted**:
+
+- The new application version is **not** started, so the currently running (previous) release keeps serving traffic and the service stays up.
+- The pipeline **rolls back to the previous release**: the previously deployed image tag is restored and the failed release is discarded.
+- The migration failure is surfaced in the pipeline logs and triggers an alert for the on-call engineer.
+
+Because migrations run in a transaction (`migrationsTransactionMode: 'all'`), a failed migration is rolled back at the database level, leaving the schema in the state of the previous release. If a migration was partially applied outside a transaction, follow the manual cleanup steps in [Troubleshooting](#migration-fails-in-production).
+
+> Note: If the failure is caused by a migration that must be reverted (for example, it succeeded but the new code is incompatible), use the [Rollback Workflow](#rollback-workflow) below.
+
+### Migration Status Health Check
+
+The health-check workflow includes a `migration:status` check that runs against production:
+
+```bash
+npm run migration:show
+```
+
+If the command reports **pending migrations** in production, the workflow raises an alert. Pending migrations in production indicate that a deployment did not apply its migrations (for example, a skipped or failed step) and the schema may be out of sync with the application code. Investigate immediately and apply the migrations manually using the procedure below.
+
+### Manual Migration Procedures
+
+These procedures are for emergency use when the automated pipeline cannot run migrations (for example, a hotfix or a pipeline outage).
+
+#### Manually apply a migration in production
+
+1. **Backup database**: Create and verify a backup before proceeding
+2. **Check status**: Confirm which migrations are pending
+   ```bash
+   npm run migration:show
+   ```
+3. **Run migrations**: Execute pending migrations using the deployed image
+   ```bash
+   docker run --rm --env-file .env.production \
+     ghcr.io/scoopdope/backend:<current-tag> \
+     node dist/main migration:run
+   ```
+4. **Verify**: Re-run `npm run migration:show` and confirm no migrations remain pending
+5. **Monitor**: Watch application logs for errors after the migration completes
+
+#### Manually roll back a migration in production
+
+1. **Identify issue**: Determine which migration caused the problem
+2. **Backup database**: Create and verify a backup before reverting
+3. **Revert**: Revert the last migration (repeat as needed for multiple migrations)
+   ```bash
+   docker run --rm --env-file .env.production \
+     ghcr.io/scoopdope/backend:<current-tag> \
+     node dist/main migration:revert
+   ```
+4. **Verify**: Run `npm run migration:show` and confirm the migration is no longer listed as executed
+5. **Fix**: Create a new migration with the correction and redeploy through the pipeline
 
 ### Rollback Workflow
 

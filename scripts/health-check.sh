@@ -9,6 +9,9 @@ API_URL="${API_URL:-http://localhost:3000}"
 PROBE="${PROBE:-full}"
 MAX_RETRIES="${MAX_RETRIES:-30}"
 RETRY_INTERVAL="${RETRY_INTERVAL:-5}"
+NODE_ENV="${NODE_ENV:-development}"
+CHECK_MIGRATIONS="${CHECK_MIGRATIONS:-auto}"
+MIGRATION_STATUS_CMD="${MIGRATION_STATUS_CMD:-npx typeorm migration:show -d dist/config/database.config.js}"
 
 case "$PROBE" in
   live|liveness)
@@ -37,6 +40,71 @@ echo "Probe: ${PROBE}"
 echo "Max retries: ${MAX_RETRIES}"
 echo "Retry interval: ${RETRY_INTERVAL}s"
 echo ""
+
+# Determine whether the migration status check should run.
+# Defaults to running only in production, but can be forced on/off via CHECK_MIGRATIONS.
+should_check_migrations() {
+    case "${CHECK_MIGRATIONS}" in
+        true|1|yes|on)
+            return 0
+            ;;
+        false|0|no|off)
+            return 1
+            ;;
+        auto|*)
+            if [ "${NODE_ENV}" = "production" ]; then
+                return 0
+            fi
+            return 1
+            ;;
+    esac
+}
+
+# Check for pending migrations and alert/fail if any are reported.
+# Returns 0 when no pending migrations are found, 1 when pending migrations exist
+# or the status command cannot be executed.
+check_migrations() {
+    local output
+    local exit_code
+
+    echo "Checking migration status..."
+    echo "Command: ${MIGRATION_STATUS_CMD}"
+
+    output=$(eval "${MIGRATION_STATUS_CMD}" 2>&1)
+    exit_code=$?
+
+    echo "${output}"
+
+    if [ ${exit_code} -ne 0 ]; then
+        echo "MIGRATION STATUS CHECK FAILED - Unable to determine migration state"
+        echo "ALERT: Schema drift cannot be verified; investigate migration runner immediately"
+        return 1
+    fi
+
+    # typeorm migration:show marks pending migrations with "[ ]" and applied ones with "[X]".
+    if echo "${output}" | grep -q '\[ \]'; then
+        echo "PENDING MIGRATIONS DETECTED - Production schema is out of sync with application code"
+        echo "ALERT: Run 'typeorm migration:run' before serving traffic"
+        return 1
+    fi
+
+    echo "Migration status check passed - no pending migrations"
+    return 0
+}
+
+if should_check_migrations; then
+    if ! check_migrations; then
+        echo ""
+        echo "Health check smoke test FAILED!"
+        echo "Pending or unverifiable migrations detected (NODE_ENV=${NODE_ENV})"
+        echo "Apply pending migrations and re-run the health check"
+        exit 1
+    fi
+    echo ""
+else
+    echo "Skipping migration status check (NODE_ENV=${NODE_ENV}, CHECK_MIGRATIONS=${CHECK_MIGRATIONS})"
+    echo ""
+fi
 
 check_health() {
     local response
