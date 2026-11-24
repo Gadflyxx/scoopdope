@@ -173,3 +173,46 @@ fn test_record_progress_distinct_keys_create_distinct_entries() {
     assert_eq!(client.get_progress(&student, &course_a).unwrap().progress_pct, 60);
     assert_eq!(client.get_progress(&student, &course_b).unwrap().progress_pct, 20);
 }
+
+#[test]
+fn test_admin_can_revoke_existing_credential() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let credential_id = symbol_short!("CRED1");
+
+    client.set_admin(&admin);
+    client.revoke_credential(&admin, &credential_id);
+
+    assert!(client.is_revoked(&credential_id));
+}
+
+#[test]
+fn test_is_revoked_false_for_non_revoked_credential() {
+    let (env, client) = setup();
+    let credential_id = symbol_short!("CRED1");
+
+    assert!(!client.is_revoked(&credential_id));
+}
+
+#[test]
+#[should_panic]
+fn test_non_admin_cannot_revoke_credential() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+    let credential_id = symbol_short!("CRED1");
+
+    client.set_admin(&admin);
+    client.revoke_credential(&non_admin, &credential_id);
+}
+
+#[test]
+#[should_panic]
+fn test_revoke_non_existent_credential_panics() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let credential_id = symbol_short!("MISSING");
+
+    client.set_admin(&admin);
+    client.revoke_credential(&admin, &credential_id);
+}

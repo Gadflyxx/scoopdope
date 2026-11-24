@@ -1,6 +1,7 @@
 import http from 'k6/http';
+import ws from 'k6/ws';
 import { check, sleep, group } from 'k6';
-import { Rate, Trend } from 'k6/metrics';
+import { Rate, Trend, Gauge } from 'k6/metrics';
 
 /**
  * High Concurrency Load Test
@@ -8,12 +9,33 @@ import { Rate, Trend } from 'k6/metrics';
  *
  * The 200-user scenario validates the DB connection pool configuration
  * (DB_POOL_MAX, defaults to 20) and asserts no connection exhaustion occurs.
+ *
+ * WebSocket memory monitoring:
+ * The `websocket_memory` scenario opens and closes WebSocket connections
+ * against the collaboration gateway to exercise the `handleDisconnect`
+ * cleanup path, and samples process memory (RSS) from the API's metrics
+ * endpoint. The `ws_memory_rss` Gauge tracks the sampled RSS and the
+ * `ws_memory_growth` Trend tracks the delta from the baseline sample.
+ * Thresholds assert that memory does not grow unbounded across the run.
+ *
+ * Expected memory footprint per WebSocket connection (documented baseline):
+ *   - ~10-20 KB per connection for the socket buffer + NestJS gateway
+ *     client map entry (client id -> socket reference).
+ *   - ~1-2 MB per 100 concurrent connections of additional RSS.
+ *   - After all clients disconnect, RSS should return to within ~5% of the
+ *     pre-connection baseline. Sustained growth beyond that indicates a
+ *     leaked client reference in a gateway's in-memory map.
  */
 
 // Custom metrics for connection-exhaustion detection
 const connectionExhaustionRate = new Rate('connection_exhaustion_errors');
 const serverErrorRate = new Rate('server_errors');
 const dbHeavyDuration = new Trend('db_heavy_request_duration');
+
+// Custom metrics for WebSocket memory-leak detection
+const wsMemoryRss = new Gauge('ws_memory_rss');
+const wsMemoryGrowth = new Trend('ws_memory_growth');
+const wsConnectFailures = new Rate('ws_connect_failures');
 
 export const options = {
   scenarios: {
@@ -52,6 +74,15 @@ export const options = {
       startTime: '8m',
       tags: { scenario: 'high_concurrency' },
     },
+    // WebSocket memory-leak monitoring - open/close connections and sample RSS
+    websocket_memory: {
+      executor: 'constant-vus',
+      vus: 10,
+      duration: '10m',
+      exec: 'websocketMemoryScenario',
+      startTime: '30m',
+      tags: { scenario: 'websocket_memory' },
+    },
   },
   thresholds: {
     http_req_duration: ['p(95)<1000', 'p(99)<2000'],
@@ -60,11 +91,20 @@ export const options = {
     'connection_exhaustion_errors{scenario:pool_validation}': ['rate==0'],
     'server_errors{scenario:pool_validation}': ['rate<0.01'],
     'db_heavy_request_duration{scenario:pool_validation}': ['p(95)<1500', 'p(99)<3000'],
+    // WebSocket memory must not grow unbounded across the run
+    'ws_memory_growth{scenario:websocket_memory}': ['p(95)<52428800'], // < 50 MB growth
+    'ws_connect_failures{scenario:websocket_memory}': ['rate<0.05'],
   },
 };
 
 const BASE_URL = __ENV.API_URL || 'http://localhost:3000';
 const API_PREFIX = '/api/v1';
+const WS_URL = __ENV.WS_URL || BASE_URL.replace(/^http/, 'ws');
+const WS_PATH = __ENV.WS_PATH || '/socket.io/?EIO=4&transport=websocket';
+const MEMORY_ENDPOINT = __ENV.MEMORY_ENDPOINT || `${BASE_URL}${API_PREFIX}/metrics/memory`;
+
+// Baseline RSS (bytes) captured in setup(); used to compute memory growth.
+let baselineRss = 0;
 
 // Smoke assertion: fail the run if no response ever returns 200 (e.g. wrong path -> all 404s)
 export function setup() {
@@ -80,6 +120,37 @@ export function setup() {
     throw new Error(
       `Smoke check failed: expected 200 from ${BASE_URL}${API_PREFIX}/courses, got ${res.status}`
     );
+  }
+
+  // Capture baseline process memory before any WebSocket connections are opened.
+  baselineRss = sampleMemoryRss();
+  if (baselineRss > 0) {
+    wsMemoryRss.add(baselineRss, { scenario: 'websocket_memory', phase: 'baseline' });
+  }
+
+  return { baselineRss };
+}
+
+/**
+ * Sample the API process RSS (bytes) from the memory metrics endpoint.
+ * Returns 0 if the endpoint is unavailable so the run is not aborted.
+ */
+function sampleMemoryRss() {
+  const res = http.get(MEMORY_ENDPOINT, {
+    tags: { endpoint: 'memory-metrics', scenario: 'websocket_memory' },
+  });
+
+  if (res.status !== 200) {
+    return 0;
+  }
+
+  try {
+    const body = JSON.parse(res.body);
+    // Accept either { rss } or { memory: { rss } } shapes.
+    const rss = body.rss ?? (body.memory && body.memory.rss);
+    return typeof rss === 'number' ? rss : 0;
+  } catch (e) {
+    return 0;
   }
 }
 
@@ -217,6 +288,45 @@ export function highConcurrencyScenario() {
 
     sleep(1);
   });
+}
+
+/**
+ * WebSocket memory scenario - repeatedly opens and closes WebSocket
+ * connections to the collaboration gateway, exercising the
+ * `handleDisconnect` cleanup path, and samples process memory.
+ * A leaked client reference shows up as a rising `ws_memory_growth` trend.
+ */
+export function websocketMemoryScenario() {
+  const url = `${WS_URL}${WS_PATH}`;
+
+  const res = ws.connect(url, { tags: { scenario: 'websocket_memory' } }, (socket) => {
+    socket.on('open', () => {
+      // Send a lightweight collaboration message to register the client.
+      socket.send(JSON.stringify({ event: 'join', data: { room: 'load-test' } }));
+    });
+
+    socket.on('error', () => {
+      wsConnectFailures.add(true, { scenario: 'websocket_memory' });
+    });
+
+    // Keep the connection open briefly, then close it to trigger handleDisconnect.
+    socket.setTimeout(() => {
+      socket.close();
+    }, 1000);
+  });
+
+  wsConnectFailures.add(res && res.status !== 101, { scenario: 'websocket_memory' });
+
+  // Sample memory after the connection is closed and cleanup should have run.
+  const rss = sampleMemoryRss();
+  if (rss > 0) {
+    wsMemoryRss.add(rss, { scenario: 'websocket_memory' });
+    if (baselineRss > 0) {
+      wsMemoryGrowth.add(rss - baselineRss, { scenario: 'websocket_memory' });
+    }
+  }
+
+  sleep(1);
 }
 
 export default function () {

@@ -107,3 +107,20 @@ export interface CreateReviewDto {
   /** Optional review text */
   comment?: string;
 }
+
+/**
+ * Completion status of a single prerequisite course for a learner.
+ */
+export interface PrerequisiteStatus {
+  courseId: string;
+  title: string;
+  completed: boolean;
+}
+
+/**
+ * Response shape for the prerequisites status endpoint of a course.
+ */
+export interface CoursePrerequisitesResponse {
+  allSatisfied: boolean;
+  prerequisites: PrerequisiteStatus[];
+}

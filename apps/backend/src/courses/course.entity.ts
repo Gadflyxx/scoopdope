@@ -123,8 +123,13 @@ export class Course {
   @OneToMany(() => Review, (review) => review.course, { cascade: ['remove'] })
   reviews: Review[];
 
+  /** Prerequisite courses that must be completed before enrolling in this course. */
   @OneToMany(() => CoursePrerequisite, (cp) => cp.course, { cascade: ['remove'] })
   prerequisites: CoursePrerequisite[];
+
+  /** Inverse side: courses that list this course as a prerequisite. */
+  @OneToMany(() => CoursePrerequisite, (cp) => cp.prerequisiteCourse)
+  prerequisiteOf: CoursePrerequisite[];
 
   averageRating?: number | null;
 
