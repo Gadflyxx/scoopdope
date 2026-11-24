@@ -37,6 +37,7 @@ import { LiveSessionsModule } from './live-sessions/live-sessions.module';
 import { PaymentsModule } from './payments/payments.module';
 import { RewardsModule } from './rewards/rewards.module';
 import { SupportTicketsModule } from './support-tickets/support-tickets.module';
+import { RevenueModule } from './revenue/revenue.module';
 import { HealthModule } from './health/health.module';
 import * as redisStore from 'cache-manager-redis-store';
 import configuration from './config/configuration';
@@ -154,6 +155,7 @@ export class GracefulShutdownService implements OnApplicationShutdown {
     PaymentsModule,
     RewardsModule,
     SupportTicketsModule,
+    RevenueModule,
     RateLimitModule,
     ApiVersionModule,
     MonitoringModule,

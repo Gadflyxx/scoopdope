@@ -23,6 +23,8 @@ export interface UserProfile {
   referralCode: string | null;
   createdAt: string;
   themePreference: 'light' | 'dark' | 'system';
+  /** Whether the user has completed the guided onboarding flow */
+  onboardingCompleted: boolean;
 }
 
 /**

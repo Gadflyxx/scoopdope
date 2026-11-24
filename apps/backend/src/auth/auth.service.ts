@@ -225,8 +225,27 @@ export class AuthService {
         username: user.username ?? null,
         createdAt: user.createdAt,
         themePreference: user.themePreference ?? 'system',
+        onboardingCompleted: user.onboardingCompleted ?? false,
       },
     };
+  }
+
+  /**
+   * #1394 – Mark the guided onboarding flow as completed for a user.
+   * Idempotent: calling it again for an already-onboarded user is a no-op.
+   */
+  async completeOnboarding(userId: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    if (!user.onboardingCompleted) {
+      await this.usersService.update(userId, { onboardingCompleted: true });
+      await this.auditService.log(AuditAction.USER_UPDATED, userId, true, {
+        onboardingCompleted: true,
+      });
+    }
+
+    return { onboardingCompleted: true };
   }
 
   /**
