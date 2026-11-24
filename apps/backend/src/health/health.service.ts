@@ -17,6 +17,7 @@ import {
   MEMORY_RSS_THRESHOLD_BYTES,
 } from './health.constants';
 import { HealthSystemInfo, HealthEnvironmentInfo, ProbeResult, ProbeCheckResult } from './health.types';
+import { MigrationRunnerService } from '../database/migrations/migration-runner.service';
 
 @Injectable()
 export class HealthService implements OnModuleInit {
@@ -37,6 +38,7 @@ export class HealthService implements OnModuleInit {
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
     private readonly configService: ConfigService,
+    private readonly migrationRunner: MigrationRunnerService,
   ) {
     this.appVersion = process.env.npm_package_version || '1.0.0';
     this.nodeEnv = this.configService.get<string>('nodeEnv') || 'development';
@@ -136,6 +138,14 @@ export class HealthService implements OnModuleInit {
       }
     });
 
+    await this.withCache('readiness-migrations', async () => {
+      const migrationResult = await this.checkMigrations();
+      result.checks['migrations'] = migrationResult;
+      if (migrationResult.status !== 'up') {
+        result.status = 'error';
+      }
+    });
+
     return result;
   }
 
@@ -216,10 +226,46 @@ export class HealthService implements OnModuleInit {
       }
     });
 
+    await this.withCache('full-migrations', async () => {
+      const migrationResult = await this.checkMigrations();
+      result.checks['migrations'] = migrationResult;
+      if (migrationResult.status !== 'up') {
+        result.status = 'error';
+      }
+    });
+
     this.healthGauge.set({ probe: 'full' }, result.status === 'ok' ? 1 : 0);
     this.healthGauge.set({ probe: 'readiness' }, result.status === 'ok' ? 1 : 0);
 
     return result;
+  }
+
+  async checkMigrations(): Promise<ProbeCheckResult> {
+    try {
+      const status = await this.migrationRunner.getStatus();
+      const pending = status.pendingMigrations ?? [];
+
+      if (pending.length > 0) {
+        this.logger.warn('Pending database migrations detected', {
+          pendingMigrations: pending,
+          environment: this.environmentName,
+        });
+        return {
+          status: 'down',
+          message: `${pending.length} pending migration(s): ${pending.join(', ')}`,
+        };
+      }
+
+      return { status: 'up' };
+    } catch (error: any) {
+      this.logger.error('Failed to determine migration status', {
+        error: error?.message,
+      });
+      return {
+        status: 'down',
+        message: `Migration status unavailable: ${error?.message ?? 'unknown error'}`,
+      };
+    }
   }
 
   private async checkRedis(): Promise<ProbeCheckResult> {

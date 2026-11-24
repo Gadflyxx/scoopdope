@@ -7,6 +7,7 @@ export interface MigrationStatus {
   timestamp: number;
   name: string;
   executedAt?: Date;
+  status?: 'executed' | 'pending';
 }
 
 export interface MigrationResult {
@@ -182,13 +183,13 @@ export class MigrationRunnerService {
       `SELECT id, name, "timestamp", "executedAt" FROM "${this.dataSource.options.migrationsTableName || 'migrations'}" ORDER BY "timestamp" ASC`,
     );
 
-    const pendingMigrations =
-      this.dataSource.migrations.filter(
-        (m) =>
-          !executedMigrations.some(
-            (em: any) => em.name === m.name,
-          ),
-      );
+    const executedNames = new Set<string>(
+      executedMigrations.map((em: any) => em.name),
+    );
+
+    const pendingMigrations = this.dataSource.migrations.filter(
+      (m) => !executedNames.has(m.name ?? ''),
+    );
 
     const all: MigrationStatus[] = [
       ...executedMigrations.map((em: any) => ({
@@ -221,5 +222,15 @@ export class MigrationRunnerService {
   private extractTimestamp(name: string): number {
     const match = name.match(/(\d{13})/);
     return match ? parseInt(match[1], 10) : 0;
+  }
+
+  async getPendingMigrations(): Promise<MigrationStatus[]> {
+    const status = await this.getStatus();
+    return status.filter((m) => m.status === 'pending');
+  }
+
+  async hasPendingMigrations(): Promise<boolean> {
+    const pending = await this.getPendingMigrations();
+    return pending.length > 0;
   }
 }
