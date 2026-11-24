@@ -7,6 +7,7 @@ import { StellarModule } from '../stellar/stellar.module';
 import { KycModule } from '../kyc/kyc.module';
 import { CoursesModule } from '../courses/courses.module';
 import { UsersModule } from '../users/users.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { CertificatePdfService } from './certificate-pdf.service';
 
 @Module({
@@ -16,6 +17,7 @@ import { CertificatePdfService } from './certificate-pdf.service';
     KycModule,
     CoursesModule,
     UsersModule,
+    NotificationsModule,
   ],
   providers: [CredentialsService, CertificatePdfService],
   controllers: [CredentialsController],

@@ -108,6 +108,37 @@ export class CredentialsController {
     return this.credentialsService.verify(txHash);
   }
 
+  @Post(':id/revoke')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: revoke an issued credential' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - admin role required' })
+  @ApiResponse({ status: 404, description: 'Credential not found' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  @ApiBody({
+    required: false,
+    schema: { example: { reason: 'Issued in error due to grade dispute' } },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Credential revoked',
+    schema: {
+      example: {
+        id: 'uuid',
+        revoked: true,
+        revokedAt: '2024-01-01T00:00:00.000Z',
+        revocationReason: 'Issued in error due to grade dispute',
+      },
+    },
+  })
+  revoke(@Param('id') id: string, @Body() body?: { reason?: string }) {
+    return this.credentialsService.revoke(id, body?.reason);
+  }
+
   @Post('issue')
   @UseGuards(AuthGuard(['jwt', 'api-key']), RolesGuard)
   @Roles('admin')

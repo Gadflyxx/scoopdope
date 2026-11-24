@@ -14,7 +14,7 @@ import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
 import { CourseStatus } from '../courses/entities/course.entity';
 import { CoursesService } from '../courses/courses.service';
 import { CourseVersioningService } from '../courses/course-versioning.service';
-import { PrerequisitesService } from '../learning-paths/prerequisites.service';
+import { PrerequisitesService } from '../courses/prerequisites.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { EnrollmentConfirmedEvent } from './events/enrollment-confirmed.event';
 
