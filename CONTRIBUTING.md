@@ -40,11 +40,46 @@ Common types:
 - `feat` — a new feature
 - `fix` — a bug fix
 - `docs` — documentation changes
+- `style` — formatting changes that do not affect the meaning of the code
 - `refactor` — a code change that neither fixes a bug nor adds a feature
+- `perf` — a code change that improves performance
 - `test` — adding or updating tests
+- `build` — changes to the build system or external dependencies
+- `ci` — changes to CI configuration and scripts
 - `chore` — tooling, build, or maintenance work
+- `revert` — reverting a previous commit
+
+### Commit message examples
+
+Valid commit messages, one per allowed type:
+
+```
+feat: add wallet balance endpoint
+fix: handle empty response body
+docs: document contract deployment steps
+style: reformat transaction helpers
+refactor: extract validation into helper
+perf: cache contract metadata lookups
+test: cover expired session handling
+build: bump soroban-sdk to 21.0.0
+ci: run contract tests on pull requests
+chore: update prettier configuration
+revert: revert "feat: add wallet balance endpoint"
+```
+
+Scoped examples, using the area of the codebase affected:
+
+```
+feat(api): add pagination to transaction history
+fix(contracts): prevent overflow in token transfer
+docs(contributing): clarify branch naming
+test(backend): add integration tests for auth
+```
+
+> **Note:** Commitlint runs in CI on **every commit** in a pull request, not just the PR title. If any commit has a non-conventional message, the check fails and the PR cannot be merged until the history is fixed.
 
 Guidelines:
+=======
 
 - Keep the summary in the imperative mood and under ~72 characters (e.g. `fix: handle empty response body`).
 - Use the body to explain *what* and *why*, not *how*.
