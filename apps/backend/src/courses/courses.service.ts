@@ -10,10 +10,19 @@ import { Repository } from 'typeorm';
 import { Cache } from 'cache-manager';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Inject } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Course, CourseStatus, DifficultyLevel } from './course.entity';
 import { CourseQueryDto } from './dto/course-query.dto';
 import { SearchService } from '../search/search.service';
 import { MetricsService } from '../metrics/metrics.service';
+import { AccessControlService } from '../access-control/access-control.service';
+
+/** Event emitted when an instructor submits a course for moderation. */
+export const COURSE_SUBMITTED_FOR_REVIEW = 'course.submitted_for_review';
+/** Event emitted when an admin publishes a course. */
+export const COURSE_PUBLISHED = 'course.published';
+/** Event emitted when an admin rejects a course. */
+export const COURSE_REJECTED = 'course.rejected';
 
 /** Ordered difficulty levels from easiest to hardest. */
 export const DIFFICULTY_ORDER: DifficultyLevel[] = [
@@ -62,8 +71,57 @@ export class CoursesService {
     @InjectRepository(Course) private repo: Repository<Course>,
     @Inject(CACHE_MANAGER) private cacheManager: Cache = {} as Cache,
     private readonly searchService: SearchService = {} as SearchService,
-    private readonly metricsService: MetricsService = {} as MetricsService
+    private readonly metricsService: MetricsService = {} as MetricsService,
+    private readonly eventEmitter: EventEmitter2 = {} as EventEmitter2
   ) {}
+
+  /**
+   * Resolve a course and enforce its visibility rules for the given viewer.
+   *
+   * This is the service-layer backstop for access control: any code path that
+   * returns course content (detail, lessons, resources) must go through here so
+   * that direct service calls cannot bypass the HTTP guard.
+   *
+   * - Missing or soft-deleted courses raise NotFoundException.
+   * - Viewers who fail the visibility check raise ForbiddenException.
+   */
+  async findAccessibleCourse(
+    id: string,
+    userId?: string | null
+  ): Promise<Course> {
+    const course = await this.repo.findOne({ where: { id } });
+    if (!course || course.isDeleted) {
+      throw new NotFoundException(`Course with id ${id} not found`);
+    }
+
+    const allowed = await this.accessControlService.canAccessCourse(course, userId ?? null);
+    if (!allowed) {
+      throw new ForbiddenException('You do not have access to this course');
+    }
+
+    return course;
+  }
+
+  /**
+   * Get a course's detail, enforcing visibility rules for the viewer.
+   */
+  async findOne(id: string, userId?: string | null): Promise<Course> {
+    return this.findAccessibleCourse(id, userId);
+  }
+
+  /**
+   * Get a course's lessons, enforcing visibility rules for the viewer.
+   */
+  async findLessons(id: string, userId?: string | null): Promise<Course> {
+    return this.findAccessibleCourse(id, userId);
+  }
+
+  /**
+   * Get a course's resources, enforcing visibility rules for the viewer.
+   */
+  async findResources(id: string, userId?: string | null): Promise<Course> {
+    return this.findAccessibleCourse(id, userId);
+  }
 
   /**
    * Get average rating for a course from reviews
@@ -102,11 +160,14 @@ export class CoursesService {
     }
 
     // Only PUBLISHED courses are visible in the public catalogue. Draft,
-    // pending-review, scheduled and archived courses are excluded here.
+    // under-review, rejected, scheduled and archived courses are excluded here.
     const qb = this.repo
       .createQueryBuilder('course')
       .where('course.status = :publishedStatus', { publishedStatus: CourseStatus.PUBLISHED })
-      .andWhere('course.isDeleted = :isDeleted', { isDeleted: false });
+      .andWhere('course.isDeleted = :isDeleted', { isDeleted: false })
+      .andWhere('(course.visibility IS NULL OR course.visibility != :privateVisibility)', {
+        privateVisibility: CourseVisibility.PRIVATE,
+      });
 
     if (search) {
       // Case-insensitive match on title/description (ILIKE handles casing).
@@ -224,6 +285,108 @@ export class CoursesService {
     return saved;
   }
 
+  /**
+   * Submit a draft course for moderation. Transitions the course from DRAFT
+   * to UNDER_REVIEW and notifies admins that a review is pending. Only the
+   * owning instructor may submit their own course.
+   */
+  async submitForReview(id: string, instructorId: string): Promise<Course> {
+    const course = await this.repo.findOne({ where: { id } });
+    if (!course) {
+      throw new NotFoundException(`Course with id ${id} not found`);
+    }
+
+    if (course.instructorId && course.instructorId !== instructorId) {
+      throw new ForbiddenException('You can only submit your own courses for review');
+    }
+
+    if (course.status === CourseStatus.UNDER_REVIEW) {
+      return course;
+    }
+
+    if (course.status !== CourseStatus.DRAFT && course.status !== CourseStatus.REJECTED) {
+      throw new BadRequestException(
+        `Only draft or rejected courses can be submitted for review (current status: ${course.status})`
+      );
+    }
+
+    course.status = CourseStatus.UNDER_REVIEW;
+    const saved = await this.repo.save(course);
+    await this.invalidateCache();
+
+    this.eventEmitter.emit(COURSE_SUBMITTED_FOR_REVIEW, {
+      courseId: saved.id,
+      title: saved.title,
+      instructorId,
+    });
+
+    return saved;
+  }
+
+  /**
+   * Admin action: publish a course that is under review. Transitions the
+   * course to PUBLISHED and notifies the instructor of the decision.
+   */
+  async adminPublish(id: string): Promise<Course> {
+    const course = await this.repo.findOne({ where: { id } });
+    if (!course) {
+      throw new NotFoundException(`Course with id ${id} not found`);
+    }
+
+    if (course.status === CourseStatus.PUBLISHED) {
+      return course;
+    }
+
+    if (course.status !== CourseStatus.UNDER_REVIEW) {
+      throw new BadRequestException(
+        `Only courses under review can be published (current status: ${course.status})`
+      );
+    }
+
+    course.status = CourseStatus.PUBLISHED;
+    const saved = await this.repo.save(course);
+    await this.invalidateCache();
+
+    this.eventEmitter.emit(COURSE_PUBLISHED, {
+      courseId: saved.id,
+      title: saved.title,
+      instructorId: saved.instructorId,
+    });
+
+    return saved;
+  }
+
+  /**
+   * Admin action: reject a course that is under review, optionally with
+   * rejection notes. Transitions the course to REJECTED and notifies the
+   * instructor of the decision.
+   */
+  async adminReject(id: string, notes?: string): Promise<Course> {
+    const course = await this.repo.findOne({ where: { id } });
+    if (!course) {
+      throw new NotFoundException(`Course with id ${id} not found`);
+    }
+
+    if (course.status !== CourseStatus.UNDER_REVIEW) {
+      throw new BadRequestException(
+        `Only courses under review can be rejected (current status: ${course.status})`
+      );
+    }
+
+    course.status = CourseStatus.REJECTED;
+    const saved = await this.repo.save(course);
+    await this.invalidateCache();
+
+    this.eventEmitter.emit(COURSE_REJECTED, {
+      courseId: saved.id,
+      title: saved.title,
+      instructorId: saved.instructorId,
+      notes: notes ?? null,
+    });
+
+    return saved;
+  }
+
   /** Read a trimmed cell value by column index, tolerating missing columns. */
   private readCell(cells: string[], index: number): string {
     if (index < 0 || index >= cells.length) return '';
@@ -299,6 +462,9 @@ export class CoursesService {
       .createQueryBuilder('course')
       .where('course.status = :publishedStatus', { publishedStatus: CourseStatus.PUBLISHED })
       .andWhere('course.isDeleted = :isDeleted', { isDeleted: false })
+      .andWhere('(course.visibility IS NULL OR course.visibility != :privateVisibility)', {
+        privateVisibility: CourseVisibility.PRIVATE,
+      })
       .andWhere('course.difficultyLevel IN (:...allowedLevels)', { allowedLevels })
       .orderBy('course.difficultyLevel', 'ASC')
       .addOrderBy('course.createdAt', 'DESC')

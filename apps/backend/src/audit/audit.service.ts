@@ -57,4 +57,38 @@ export class AuditService {
         (resourceId === undefined || entry.resourceId === resourceId),
     );
   }
+
+  findByUser(userId: string): AuditEntry[] {
+    return this.entries.filter((entry) => entry.actor === userId);
+  }
+
+  findByUserAndDateRange(
+    userId: string,
+    from?: Date,
+    to?: Date,
+  ): AuditEntry[] {
+    const fromTime = from ? from.getTime() : undefined;
+    const toTime = to ? to.getTime() : undefined;
+
+    return this.entries.filter((entry) => {
+      if (entry.actor !== userId) {
+        return false;
+      }
+
+      const entryTime = new Date(entry.timestamp).getTime();
+      if (Number.isNaN(entryTime)) {
+        return false;
+      }
+
+      if (fromTime !== undefined && entryTime < fromTime) {
+        return false;
+      }
+
+      if (toTime !== undefined && entryTime > toTime) {
+        return false;
+      }
+
+      return true;
+    });
+  }
 }

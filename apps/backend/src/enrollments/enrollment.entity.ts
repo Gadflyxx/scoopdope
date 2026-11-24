@@ -58,4 +58,12 @@ export class Enrollment {
   /** Enrollment status: ACTIVE, COMPLETED, or DROPPED */
   @Column({ type: 'enum', enum: EnrollmentStatus, default: EnrollmentStatus.ACTIVE })
   status: EnrollmentStatus;
+
+  /**
+   * Referral code applied to this enrollment's purchase, if any.
+   * Null when no referral discount was used. Used to prevent the
+   * first-purchase referral discount from being applied more than once.
+   */
+  @Column({ nullable: true, type: 'varchar', length: 32 })
+  referralCode: string | null;
 }

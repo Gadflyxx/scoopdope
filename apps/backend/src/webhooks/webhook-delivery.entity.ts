@@ -1,9 +1,16 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
-export enum DeliveryStatus {
-  SUCCESS = 'success',
-  FAILED = 'failed',
+export enum WebhookDeliveryStatus {
   PENDING = 'pending',
+  SUCCEEDED = 'succeeded',
+  FAILED = 'failed',
 }
 
 @Entity('webhook_deliveries')
@@ -11,31 +18,36 @@ export class WebhookDelivery {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @Column({ name: 'event_type', type: 'varchar', length: 255 })
+  eventType: string;
+
+  @Column({ type: 'varchar', length: 2048 })
+  endpoint: string;
+
+  @Column({ type: 'jsonb' })
+  payload: Record<string, unknown>;
+
   @Index()
-  @Column()
-  webhookId: string;
+  @Column({
+    type: 'enum',
+    enum: WebhookDeliveryStatus,
+    default: WebhookDeliveryStatus.PENDING,
+  })
+  status: WebhookDeliveryStatus;
 
-  @Column()
-  event: string;
+  @Column({ name: 'attempt_count', type: 'int', default: 0 })
+  attemptCount: number;
 
-  @Column('text')
-  payload: string;
+  @Index()
+  @Column({ name: 'next_attempt_at', type: 'timestamptz', nullable: true })
+  nextAttemptAt: Date | null;
 
-  @Column({ type: 'varchar', default: DeliveryStatus.PENDING })
-  status: DeliveryStatus;
+  @Column({ name: 'last_error', type: 'text', nullable: true })
+  lastError: string | null;
 
-  @Column({ nullable: true })
-  responseStatus: number;
-
-  @Column({ nullable: true, type: 'text' })
-  responseBody: string;
-
-  @Column({ default: 0 })
-  attempts: number;
-
-  @Column({ nullable: true, type: 'timestamp' })
-  nextRetryAt: Date;
-
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  updatedAt: Date;
 }

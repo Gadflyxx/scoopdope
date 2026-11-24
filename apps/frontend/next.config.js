@@ -9,10 +9,12 @@ const withPWA = require('next-pwa')({
   },
   runtimeCaching: [
     {
-      urlPattern: /^https:\/\/.*\.(?:png|jpg|jpeg|svg|gif|webp)$/i,
-      handler: 'CacheFirst',
+      // Lesson pages: serve cached lesson text when offline, refresh when online.
+      urlPattern: /\/courses\/[^/]+\/lesson\/.*/i,
+      handler: 'NetworkFirst',
       options: {
-        cacheName: 'images',
+        cacheName: 'lesson-pages',
+        networkTimeoutSeconds: 10,
         expiration: {
           maxEntries: 100,
           maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
@@ -20,10 +22,12 @@ const withPWA = require('next-pwa')({
       },
     },
     {
-      urlPattern: /\/courses\/.*/,
+      // Course pages (including lesson index) fallback.
+      urlPattern: /\/courses\/.*/i,
       handler: 'NetworkFirst',
       options: {
         cacheName: 'course-pages',
+        networkTimeoutSeconds: 10,
         expiration: {
           maxEntries: 50,
           maxAgeSeconds: 7 * 24 * 60 * 60, // 7 days
@@ -31,7 +35,21 @@ const withPWA = require('next-pwa')({
       },
     },
     {
-      urlPattern: /\/api\/.*/,
+      // Lesson text/content API responses.
+      urlPattern: /\/api\/(?:v\d+\/)?(?:lessons?|courses?)\/.*/i,
+      handler: 'NetworkFirst',
+      options: {
+        cacheName: 'lesson-api',
+        networkTimeoutSeconds: 10,
+        expiration: {
+          maxEntries: 200,
+          maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+        },
+      },
+    },
+    {
+      // Remaining API responses.
+      urlPattern: /\/api\/.*/i,
       handler: 'NetworkFirst',
       options: {
         cacheName: 'api-responses',
@@ -42,11 +60,50 @@ const withPWA = require('next-pwa')({
         },
       },
     },
+    {
+      // Media thumbnails and metadata (no offline video streaming).
+      urlPattern: /^https:\/\/.*\.(?:png|jpg|jpeg|svg|gif|webp|avif|ico)$/i,
+      handler: 'CacheFirst',
+      options: {
+        cacheName: 'images',
+        expiration: {
+          maxEntries: 200,
+          maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+        },
+      },
+    },
+    {
+      // App manifest and icons required for the PWA install audit.
+      urlPattern: /\/(?:manifest\.webmanifest|manifest\.json|icons?\/.*)$/i,
+      handler: 'StaleWhileRevalidate',
+      options: {
+        cacheName: 'pwa-manifest-icons',
+        expiration: {
+          maxEntries: 50,
+          maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+        },
+      },
+    },
+    {
+      // Static build assets.
+      urlPattern: /\/_next\/static\/.*/i,
+      handler: 'CacheFirst',
+      options: {
+        cacheName: 'next-static',
+        expiration: {
+          maxEntries: 200,
+          maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+        },
+      },
+    },
   ],
 });
 
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 const { withSentryConfig } = require('@sentry/nextjs');
+const withBundleAnalyzer = require('@next/bundle-analyzer')({
+  enabled: process.env.ANALYZE === 'true',
+});
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -64,6 +121,15 @@ const nextConfig = {
       { protocol: 'https', hostname: 'www.gravatar.com' },
       { protocol: 'https', hostname: '**' },
     ],
+  },
+  async rewrites() {
+    return [
+      // Serve the web app manifest at the root for the Lighthouse PWA audit.
+      {
+        source: '/manifest.webmanifest',
+        destination: '/manifest.json',
+      },
+    ];
   },
   async headers() {
     return [
@@ -90,8 +156,12 @@ const nextConfig = {
             key: 'Permissions-Policy',
             value: 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
           },
-          // CSP is now handled by middleware for nonce support
-          // See middleware.ts for dynamic CSP generation
+          // NOTE: Content-Security-Policy is intentionally NOT set here.
+          // CSP must be generated per-request in middleware.ts so that a fresh
+          // nonce can be included in `script-src` (e.g. `'nonce-<value>'`).
+          // Setting a static CSP header here would override the middleware's
+          // per-request nonce header and break Next.js inline scripts.
+          // See middleware.ts for dynamic CSP generation.
         ],
       },
     ];
@@ -133,4 +203,6 @@ const sentryConfig = {
   automaticVercelMonitors: true,
 };
 
-module.exports = withSentryConfig(withPWA(withNextIntl(nextConfig)), sentryConfig);
+module.exports = withBundleAnalyzer(
+  withSentryConfig(withPWA(withNextIntl(nextConfig)), sentryConfig)
+);

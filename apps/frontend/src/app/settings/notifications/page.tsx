@@ -111,14 +111,16 @@ export default function NotificationPreferencesPage() {
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8">
-      <h1 className="text-2xl font-semibold">Notification preferences</h1>
-      <p className="mt-2 text-sm text-gray-600">
+    <main className="mx-auto max-w-3xl px-4 py-8 text-gray-900 dark:text-gray-100">
+      <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
+        Notification preferences
+      </h1>
+      <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
         Choose how you want to be notified for each type of activity.
       </p>
 
       {loading ? (
-        <p className="mt-6 text-sm text-gray-500">Loading preferences…</p>
+        <p className="mt-6 text-sm text-gray-500 dark:text-gray-400">Loading preferences…</p>
       ) : (
         <form
           className="mt-6"
@@ -130,9 +132,14 @@ export default function NotificationPreferencesPage() {
           <table className="w-full border-collapse text-left text-sm">
             <thead>
               <tr>
-                <th className="border-b py-2 pr-4 font-medium">Notification</th>
+                <th className="border-b border-gray-200 py-2 pr-4 font-medium dark:border-gray-700">
+                  Notification
+                </th>
                 {CHANNELS.map((channel) => (
-                  <th key={channel.key} className="border-b py-2 px-4 font-medium">
+                  <th
+                    key={channel.key}
+                    className="border-b border-gray-200 py-2 px-4 font-medium dark:border-gray-700"
+                  >
                     {channel.label}
                   </th>
                 ))}
@@ -141,17 +148,21 @@ export default function NotificationPreferencesPage() {
             <tbody>
               {TYPES.map((type) => (
                 <tr key={type.key}>
-                  <td className="border-b py-3 pr-4">
-                    <div className="font-medium">{type.label}</div>
-                    <div className="text-xs text-gray-500">{type.description}</div>
+                  <td className="border-b border-gray-200 py-3 pr-4 dark:border-gray-700">
+                    <div className="font-medium text-gray-900 dark:text-gray-100">{type.label}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">{type.description}</div>
                   </td>
                   {CHANNELS.map((channel) => (
-                    <td key={channel.key} className="border-b py-3 px-4">
+                    <td
+                      key={channel.key}
+                      className="border-b border-gray-200 py-3 px-4 dark:border-gray-700"
+                    >
                       <input
                         type="checkbox"
                         aria-label={`${type.label} via ${channel.label}`}
                         checked={preferences[type.key][channel.key]}
                         onChange={() => toggle(type.key, channel.key)}
+                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:border-gray-600 dark:bg-gray-800 dark:text-blue-400 dark:focus-visible:ring-blue-400 dark:focus-visible:ring-offset-gray-900"
                       />
                     </td>
                   ))}
@@ -160,13 +171,21 @@ export default function NotificationPreferencesPage() {
             </tbody>
           </table>
 
-          {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
-          {saved ? <p className="mt-4 text-sm text-green-600">Preferences saved.</p> : null}
+          {error ? (
+            <p className="mt-4 text-sm text-red-600 dark:text-red-400" role="alert">
+              {error}
+            </p>
+          ) : null}
+          {saved ? (
+            <p className="mt-4 text-sm text-green-600 dark:text-green-400" role="status">
+              Preferences saved.
+            </p>
+          ) : null}
 
           <button
             type="submit"
             disabled={saving}
-            className="mt-6 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="mt-6 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-50 dark:bg-blue-500 dark:text-white dark:hover:bg-blue-400 dark:focus-visible:ring-blue-400 dark:focus-visible:ring-offset-gray-900"
           >
             {saving ? 'Saving…' : 'Save preferences'}
           </button>

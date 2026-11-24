@@ -4,6 +4,8 @@ import { Repository, LessThan } from 'typeorm';
 import { BatchJob, BatchJobType } from './batch-job.entity';
 import { UsersService } from '../users/users.service';
 import { CoursesService } from '../courses/courses.service';
+import { EnrollmentsService } from '../enrollments/enrollments.service';
+import { EmailService } from '../email/email.service';
 
 export interface BatchPayloadItem {
   action: string;
@@ -28,6 +30,8 @@ export class BatchService implements OnModuleInit {
     @InjectRepository(BatchJob) private jobRepo: Repository<BatchJob>,
     private usersService: UsersService,
     private coursesService: CoursesService,
+    private enrollmentsService: EnrollmentsService,
+    private emailService: EmailService,
   ) {}
 
   onModuleInit() {
@@ -63,6 +67,22 @@ export class BatchService implements OnModuleInit {
       this.jobRepo.create({ type: 'courses', payload, totalItems: payload.length, createdById }),
     );
     setImmediate(() => this.processCourseBatch(job.id));
+    return job;
+  }
+
+  async createEnrollmentBatch(
+    payload: BatchPayloadItem[],
+    createdById: string,
+  ): Promise<BatchJob> {
+    const job = await this.jobRepo.save(
+      this.jobRepo.create({
+        type: 'enrollments',
+        payload,
+        totalItems: payload.length,
+        createdById,
+      }),
+    );
+    setImmediate(() => this.processEnrollmentBatch(job.id));
     return job;
   }
 
@@ -202,5 +222,95 @@ export class BatchService implements OnModuleInit {
     };
 
     await processChunk();
+  }
+
+  async processEnrollmentBatch(jobId: string): Promise<void> {
+    const job = await this.jobRepo.findOne({ where: { id: jobId } });
+    if (!job) return;
+
+    await this.jobRepo.update(jobId, { status: 'processing', startedAt: new Date() });
+
+    const results: Array<Record<string, unknown>> = [];
+    const errors: Array<Record<string, unknown>> = [];
+    let index = 0;
+
+    const processChunk = async (): Promise<void> => {
+      const chunkLimit = Math.min(index + CHUNK_SIZE, job.payload.length);
+
+      for (; index < chunkLimit; index++) {
+        const item = job.payload[index];
+        try {
+          const { userId, courseId } = item as BatchPayloadItem;
+          if (!userId || !courseId) {
+            throw new Error('Both userId and courseId are required');
+          }
+
+          const enrollment = await this.enrollmentsService.enroll(userId, courseId);
+          results.push({
+            userId,
+            courseId,
+            success: true,
+            enrollmentId: (enrollment as { id?: string })?.id,
+          });
+        } catch (err: unknown) {
+          errors.push({
+            userId: (item as BatchPayloadItem).userId,
+            courseId: (item as BatchPayloadItem).courseId,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          });
+        }
+      }
+
+      await this.jobRepo.update(jobId, {
+        processedItems: results.length,
+        failedItems: errors.length,
+      } as any);
+
+      if (index < job.payload.length) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        await processChunk();
+      } else {
+        await this.jobRepo.update(jobId, {
+          status: errors.length === job.totalItems ? 'failed' : 'completed',
+          results: results as BatchJob['results'],
+          errors: errors as BatchJob['errors'],
+          processedItems: results.length,
+          failedItems: errors.length,
+          startedAt: null,
+        } as any);
+
+        await this.notifyBatchCompletion(job, results.length, errors.length);
+      }
+    };
+
+    await processChunk();
+  }
+
+  private async notifyBatchCompletion(
+    job: BatchJob,
+    succeeded: number,
+    failed: number,
+  ): Promise<void> {
+    try {
+      const submitter = await this.usersService.findOne(job.createdById);
+      const email = (submitter as { email?: string } | null)?.email;
+      if (!email) {
+        this.logger.warn(`No email found for batch job submitter ${job.createdById}`);
+        return;
+      }
+
+      await this.emailService.sendMail({
+        to: email,
+        subject: 'Batch enrollment job completed',
+        text:
+          `Your batch enrollment job ${job.id} has completed.\n` +
+          `Total: ${job.totalItems}, Succeeded: ${succeeded}, Failed: ${failed}.`,
+      });
+    } catch (err: unknown) {
+      this.logger.error(
+        `Failed to send completion notification for batch job ${job.id}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+    }
   }
 }

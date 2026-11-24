@@ -11,11 +11,15 @@ import {
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { PresenceService } from './presence.service';
+import { CollaborationSession } from './collaboration-session.entity';
 
 interface Session {
   courseId: string;
   instructorId: string;
 }
+
+/** Maximum number of concurrent collaborators allowed per shared session. */
+const MAX_COLLABORATORS = 5;
 
 /** Participants with no heartbeat for this long are treated as disconnected. */
 const HEARTBEAT_TTL_MS = 60_000;
@@ -42,6 +46,15 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
   /** courseId -> instructorId -> last heartbeat timestamp (ms). */
   private readonly heartbeats = new Map<string, Map<string, number>>();
+
+  /** sessionId -> set of socketIds currently collaborating on that session. */
+  private readonly collaborators = new Map<string, Set<string>>();
+
+  /** sessionId -> latest known content for the shared session. */
+  private readonly sessionContent = new Map<string, string>();
+
+  /** sessionId -> persisted CollaborationSession entity. */
+  private readonly sessionEntities = new Map<string, CollaborationSession>();
 
   private sweepTimer?: NodeJS.Timeout;
 
@@ -145,30 +158,135 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     return { broadcast: true };
   }
 
+  @SubscribeMessage('join-session')
+  onJoinSession(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { sessionId: string },
+  ) {
+    const { sessionId } = data;
+    const entity = this.sessionEntities.get(sessionId);
+    if (!entity || entity.status === 'closed') {
+      client.emit('session-error', { sessionId, reason: 'not-found' });
+      return { joined: false, reason: 'not-found' };
+    }
+    let members = this.collaborators.get(sessionId);
+    if (!members) {
+      members = new Set<string>();
+      this.collaborators.set(sessionId, members);
+    }
+    if (!members.has(client.id) && members.size >= MAX_COLLABORATORS) {
+      client.emit('session-full', { sessionId });
+      return { joined: false, reason: 'session-full' };
+    }
+    members.add(client.id);
+    client.join(sessionId);
+    this.server.to(sessionId).emit('session-presence', {
+      sessionId,
+      collaborators: members.size,
+    });
+    return { joined: true, sessionId, content: this.sessionContent.get(sessionId) ?? entity.content };
+  }
+
+  @SubscribeMessage('session-edit')
+  onSessionEdit(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { sessionId: string; content: string },
+  ) {
+    const members = this.collaborators.get(data.sessionId);
+    if (!members || !members.has(client.id)) {
+      return { applied: false, reason: 'not-a-collaborator' };
+    }
+    this.sessionContent.set(data.sessionId, data.content);
+    client.to(data.sessionId).emit('session-edited', {
+      sessionId: data.sessionId,
+      content: data.content,
+      at: Date.now(),
+    });
+    return { applied: true };
+  }
+
+  @SubscribeMessage('leave-session')
+  onLeaveSession(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { sessionId: string },
+  ) {
+    return this.removeCollaborator(client, data.sessionId);
+  }
+
   @SubscribeMessage('leave')
   onLeave(@ConnectedSocket() client: Socket) {
     const session = this.sockets.get(client.id);
+    // Clear the per-socket reference even when no session was recorded, so a
+    // stray `leave` cannot leave stale state behind.
+    this.sockets.delete(client.id);
     if (!session) return { left: false };
     this.presence.leave(session.courseId, session.instructorId);
     this.clearHeartbeat(session.courseId, session.instructorId);
     client.leave(session.courseId);
-    this.sockets.delete(client.id);
     this.broadcastPresence(session.courseId);
     return { left: true, courseId: session.courseId };
   }
 
   handleDisconnect(client: Socket): void {
+    // Always drop the per-socket reference first so repeated disconnects for the
+    // same client id cannot leak entries in the `sockets` map.
     const session = this.sockets.get(client.id);
-    if (!session) return;
-    this.presence.leave(session.courseId, session.instructorId);
-    this.clearHeartbeat(session.courseId, session.instructorId);
     this.sockets.delete(client.id);
+
+    if (session) {
+      this.presence.leave(session.courseId, session.instructorId);
+      this.clearHeartbeat(session.courseId, session.instructorId);
+    }
+
     // Remove the socket from every room it was in, not just the course room.
     for (const room of client.rooms) {
       if (room !== client.id) client.leave(room);
     }
-    this.broadcastPresence(session.courseId);
-    this.logger.log(`socket ${client.id} disconnected; cleared presence for ${session.instructorId}`);
+
+    if (session) {
+      this.broadcastPresence(session.courseId);
+      this.logger.log(
+        `socket ${client.id} disconnected; cleared presence for ${session.instructorId}`,
+      );
+    }
+  }
+
+  /** Register a persisted collaboration session so sockets can join it. */
+  registerSession(entity: CollaborationSession): void {
+    this.sessionEntities.set(entity.id, entity);
+    this.sessionContent.set(entity.id, entity.content ?? '');
+  }
+
+  /**
+   * Remove a collaborator from a shared session. When the last collaborator
+   * leaves, the final content is persisted and the session is closed.
+   */
+  private removeCollaborator(client: Socket, sessionId: string): { left: boolean } {
+    const members = this.collaborators.get(sessionId);
+    if (!members || !members.has(client.id)) return { left: false };
+    members.delete(client.id);
+    client.leave(sessionId);
+    if (members.size === 0) {
+      this.collaborators.delete(sessionId);
+      this.closeSession(sessionId);
+    } else {
+      this.server.to(sessionId).emit('session-presence', {
+        sessionId,
+        collaborators: members.size,
+      });
+    }
+    return { left: true };
+  }
+
+  /** Persist final content and mark the session closed. */
+  private closeSession(sessionId: string): void {
+    const entity = this.sessionEntities.get(sessionId);
+    if (!entity) return;
+    entity.content = this.sessionContent.get(sessionId) ?? entity.content;
+    entity.status = 'closed';
+    entity.closedAt = new Date();
+    this.sessionContent.delete(sessionId);
+    this.logger.log(`collaboration session ${sessionId} closed; content persisted`);
   }
 
   /** Server-side helper so other modules (e.g. enrollments) can push events. */
@@ -214,7 +332,13 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
           if (session.courseId === courseId && session.instructorId === instructorId) {
             this.sockets.delete(socketId);
             const socket = this.server?.sockets?.sockets?.get(socketId);
-            socket?.disconnect(true);
+            if (socket) {
+              // Leave rooms before disconnecting so no room references linger.
+              for (const room of socket.rooms) {
+                if (room !== socket.id) socket.leave(room);
+              }
+              socket.disconnect(true);
+            }
           }
         }
         changed = true;
