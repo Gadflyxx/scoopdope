@@ -159,6 +159,77 @@ export class AdminCoursesController {
     return updated;
   }
 
+  @Patch(':id/publish')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Publish a course that is under review' })
+  @ApiResponse({ status: 200, description: 'Course published' })
+  @ApiResponse({ status: 400, description: 'Course not in under_review status' })
+  @ApiResponse({ status: 404, description: 'Course not found' })
+  async publishCourse(
+    @Param('id') id: string,
+    @Req() req: { user: { id: string }; ip: string; headers: Record<string, string> },
+  ) {
+    const course = await this.coursesService.findOne(id);
+    if (!course) throw new NotFoundException('Course not found');
+    if (course.status !== 'under_review') {
+      throw new BadRequestException('Only courses under review can be published');
+    }
+
+    const updated = await this.coursesService.publishCourse(id);
+
+    await this.auditService.log(
+      AuditAction.COURSE_APPROVED,
+      req.user.id,
+      true,
+      {
+        resourceType: 'course',
+        resourceId: id,
+        changes: { status: { from: 'under_review', to: 'published' } },
+        metadata: { courseTitle: course.title },
+        ipAddress: req.ip,
+        userAgent: req.headers?.['user-agent'],
+      },
+    );
+
+    return updated;
+  }
+
+  @Patch(':id/reject')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Reject a course that is under review, with optional notes' })
+  @ApiResponse({ status: 200, description: 'Course rejected' })
+  @ApiResponse({ status: 400, description: 'Course not in under_review status' })
+  @ApiResponse({ status: 404, description: 'Course not found' })
+  async rejectUnderReviewCourse(
+    @Param('id') id: string,
+    @Body('notes') notes: string,
+    @Req() req: { user: { id: string }; ip: string; headers: Record<string, string> },
+  ) {
+    const course = await this.coursesService.findOne(id);
+    if (!course) throw new NotFoundException('Course not found');
+    if (course.status !== 'under_review') {
+      throw new BadRequestException('Only courses under review can be rejected');
+    }
+
+    const updated = await this.coursesService.rejectCourse(id, notes);
+
+    await this.auditService.log(
+      AuditAction.ADMIN_ACTION,
+      req.user.id,
+      true,
+      {
+        resourceType: 'course',
+        resourceId: id,
+        changes: { status: { from: 'under_review', to: 'rejected' } },
+        metadata: { action: 'course_rejected', notes, courseTitle: course.title },
+        ipAddress: req.ip,
+        userAgent: req.headers?.['user-agent'],
+      },
+    );
+
+    return updated;
+  }
+
   @Patch(':id/archive')
   @Roles('admin')
   @ApiOperation({ summary: 'Archive a published course' })

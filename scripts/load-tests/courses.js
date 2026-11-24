@@ -1,6 +1,8 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
+// Baseline p95 for GET /api/v1/courses is 500ms (see scripts/load-tests/baselines.json).
+// Thresholds fail the run if p95 exceeds baseline by more than 20% (500 * 1.2 = 600ms).
 export const options = {
   stages: [
     { duration: '10s', target: 500 },
@@ -8,7 +10,7 @@ export const options = {
     { duration: '10s', target: 0 },
   ],
   thresholds: {
-    http_req_duration: ['p(95)<500', 'p(99)<1000'],
+    http_req_duration: ['p(95)<600', 'p(99)<1200'],
     http_req_failed: ['rate<0.01'],
   },
 };
@@ -29,7 +31,7 @@ export default function () {
 
   check(res, {
     'status is 200': (r) => r.status === 200,
-    'response time < 500ms': (r) => r.timings.duration < 500,
+    'response time < 600ms': (r) => r.timings.duration < 600,
     'response is array': (r) => {
       try {
         return Array.isArray(JSON.parse(r.body));
