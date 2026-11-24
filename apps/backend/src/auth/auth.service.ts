@@ -20,6 +20,7 @@ import { AuditAction } from '../audit/audit-log.entity';
 import { TokenService } from './token.service';
 import { MfaService } from './mfa.service';
 import { OAuthService } from './oauth.service';
+import { ReferralsService } from '../referrals/referrals.service';
 import {
   ACCOUNT_LOCKOUT_COOLDOWN_MS,
   FAILED_LOGIN_ATTEMPT_WINDOW_MS,
@@ -41,6 +42,7 @@ export class AuthService {
     private tokenService: TokenService,
     private mfaService: MfaService,
     private oauthService: OAuthService,
+    private referralsService: ReferralsService,
     @InjectRepository(PasswordResetToken)
     private resetTokenRepo: Repository<PasswordResetToken>,
     private dataSource: DataSource,
@@ -90,12 +92,20 @@ export class AuthService {
 
     const passwordHash = await bcryptLib.hash(password, 10);
     const { token, hash, expiresAt } = this.tokenService.generateOpaqueToken(24);
-    const referralCode = crypto.randomBytes(6).toString('hex');
+    const referralCode = await this.generateUniqueReferralCode();
+
+    const normalizedRefCode = refCode?.trim();
+    if (normalizedRefCode && normalizedRefCode.toLowerCase() === referralCode.toLowerCase()) {
+      throw new BadRequestException('You cannot refer yourself');
+    }
 
     let referredBy: string | null = null;
-    if (refCode) {
-      const referrer = await this.usersService.findByReferralCode(refCode);
-      if (referrer) referredBy = referrer.id;
+    if (normalizedRefCode) {
+      const referrer = await this.usersService.findByReferralCode(normalizedRefCode);
+      if (!referrer) {
+        throw new BadRequestException('Invalid referral code');
+      }
+      referredBy = referrer.id;
     }
 
     const user = await this.usersService.create({
@@ -109,6 +119,10 @@ export class AuthService {
       publicKey: publicKey ?? null,
       publicKeyVersion: publicKey ? 1 : 0,
     });
+
+    if (referredBy) {
+      await this.referralsService.recordReferral(referredBy, user.id, normalizedRefCode!);
+    }
 
     await this.mailService.sendVerificationEmail(user.email, token);
     await this.auditService.log(AuditAction.REGISTER, user.id, true, { email });

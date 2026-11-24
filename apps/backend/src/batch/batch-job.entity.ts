@@ -7,7 +7,20 @@ import {
 } from 'typeorm';
 
 export type BatchJobStatus = 'pending' | 'processing' | 'completed' | 'failed';
-export type BatchJobType = 'users' | 'courses';
+export type BatchJobType = 'users' | 'courses' | 'webhook-delivery';
+
+export type WebhookDeliveryStatus =
+  | 'pending'
+  | 'succeeded'
+  | 'failed';
+
+export interface WebhookDeliveryAttempt {
+  attempt: number;
+  attemptedAt: Date;
+  status: 'succeeded' | 'failed';
+  statusCode?: number;
+  error?: string;
+}
 
 @Entity('batch_jobs')
 export class BatchJob {

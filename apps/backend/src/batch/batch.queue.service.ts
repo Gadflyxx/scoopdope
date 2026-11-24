@@ -4,18 +4,22 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { Queue, Worker, Job } from 'bullmq';
 import { BatchService, BatchPayloadItem } from './batch.service';
+import { WebhookDeliveryService } from '../webhooks/webhook-delivery.service';
 
 @Injectable()
 export class BatchQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BatchQueueService.name);
   public queue: Queue;
   public dlq: Queue;
+  public webhookQueue: Queue;
   private worker: Worker;
+  private webhookWorker: Worker;
 
   constructor(
     private readonly batchService: BatchService,
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
+    private readonly webhookDeliveryService: WebhookDeliveryService,
   ) {
     const redisUrl = this.configService.get<string>('redis.url');
     const maxRetries = this.configService.get<number>('batch.maxRetries');
@@ -36,6 +40,39 @@ export class BatchQueueService implements OnModuleInit, OnModuleDestroy {
         removeOnFail: false,
         removeOnComplete: false,
       },
+    });
+
+    this.webhookQueue = new Queue('webhook-delivery', {
+      connection: { url: redisUrl },
+      defaultJobOptions: {
+        removeOnFail: false,
+        removeOnComplete: { age: 24 * 60 * 60 },
+      },
+    });
+
+    this.webhookWorker = new Worker(
+      'webhook-delivery',
+      async (job: Job) => {
+        const deliveryId = job.data.deliveryId as string;
+        if (!deliveryId) {
+          throw new Error('Missing deliveryId');
+        }
+        await this.webhookDeliveryService.attemptDelivery(deliveryId);
+      },
+      {
+        connection: { url: redisUrl },
+      },
+    );
+
+    this.webhookWorker.on('failed', async (job, error) => {
+      if (!job) return;
+      const deliveryId = job.data.deliveryId as string;
+      const failedReason = error?.message || 'Unknown webhook delivery failure';
+      try {
+        await this.webhookDeliveryService.handleDeliveryFailure(deliveryId, failedReason);
+      } catch (err: any) {
+        this.logger.error('Failed handling webhook delivery failure', err?.stack || err);
+      }
     });
 
     this.worker = new Worker(
@@ -82,6 +119,8 @@ export class BatchQueueService implements OnModuleInit, OnModuleDestroy {
       this.queue.waitUntilReady(),
       this.dlq.waitUntilReady(),
       this.worker.waitUntilReady(),
+      this.webhookQueue.waitUntilReady(),
+      this.webhookWorker.waitUntilReady(),
     ]).catch((error: unknown) => {
       this.logger.error(
         'Batch queue initialization failed',
@@ -95,7 +134,17 @@ export class BatchQueueService implements OnModuleInit, OnModuleDestroy {
       this.worker.close(),
       this.queue.close(),
       this.dlq.close(),
+      this.webhookWorker.close(),
+      this.webhookQueue.close(),
     ]);
+  }
+
+  async scheduleWebhookDelivery(deliveryId: string, delayMs: number) {
+    await this.webhookQueue.add(
+      'deliver',
+      { deliveryId },
+      { delay: delayMs, jobId: `webhook-${deliveryId}-${Date.now()}` },
+    );
   }
 
   async createUserBatch(payload: BatchPayloadItem[], createdById: string) {

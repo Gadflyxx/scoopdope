@@ -52,6 +52,7 @@ import { UserRateLimitGuard } from './rate-limit/user-rate-limit.guard';
 import { AuthLoggerMiddleware } from './auth/auth-logger.middleware';
 import { CsrfMiddleware } from './common/middleware/csrf.middleware';
 import { EtagMiddleware } from './common/middleware/etag.middleware';
+import { IpAllowlistGuard } from './common/guards/ip-allowlist.guard';
 
 // Global request body size limit (1MB) applied to all routes.
 const BODY_SIZE_LIMIT = '1mb';
@@ -173,6 +174,7 @@ export class GracefulShutdownService implements OnApplicationShutdown {
       provide: APP_GUARD,
       useClass: UserRateLimitGuard,
     },
+    IpAllowlistGuard,
     GracefulShutdownService,
   ],
 })
