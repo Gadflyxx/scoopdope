@@ -59,6 +59,23 @@ export class InstructorAnalyticsController {
   }
 
   /**
+   * Get summary analytics (enrollments, revenue, completion rate by course,
+   * plus a 12-week time-series breakdown) for the authenticated instructor.
+   * GET /v1/instructor-analytics/summary
+   */
+  @Get('instructor-analytics/summary')
+  @UseGuards(RolesGuard)
+  @Roles('instructor', 'admin')
+  @ApiOperation({ summary: 'Get summary analytics for instructor' })
+  @ApiResponse({ status: 200, description: 'Summary analytics returned' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — instructor or admin only' })
+  getSummary(@Request() req: any) {
+    const instructorId = req.user.id ?? req.user.sub;
+    return this.instructorAnalyticsService.getSummary(instructorId);
+  }
+
+  /**
    * Get detailed analytics for a specific course (instructor or admin).
    * GET /v1/courses/:id/instructor-analytics
    */

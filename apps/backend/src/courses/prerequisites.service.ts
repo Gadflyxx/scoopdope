@@ -5,7 +5,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { CoursePrerequisite } from './course-prerequisite.entity';
 import { Enrollment } from '../enrollments/enrollment.entity';
 import { Course } from './course.entity';
@@ -94,6 +94,26 @@ export class PrerequisitesService {
       .map((p) => p.prerequisiteId);
 
     return { satisfied: missing.length === 0, missing };
+  }
+
+  /** Returns the prerequisite courses the user has not completed, with titles */
+  async getMissingPrerequisites(
+    userId: string,
+    courseId: string,
+  ): Promise<{ courseId: string; title: string | null }[]> {
+    const { missing } = await this.validatePrerequisites(userId, courseId);
+    if (!missing.length) return [];
+
+    const missingCourses = await this.courseRepo.find({
+      where: { id: In(missing) },
+      select: ['id', 'title'],
+    });
+    const titleMap = new Map(missingCourses.map((c) => [c.id, c.title]));
+
+    return missing.map((id) => ({
+      courseId: id,
+      title: titleMap.get(id) ?? null,
+    }));
   }
 
   /** Throws if prerequisites are not met (used by enrollment) */

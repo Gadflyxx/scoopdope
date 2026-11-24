@@ -18,11 +18,41 @@ export interface UserProfile {
   bio: string | null;
   role: UserRole;
   stellarPublicKey: string | null;
+  /** Base64-encoded E2E public key for direct messages (null until generated) */
+  publicKey: string | null;
+  /** Monotonically increasing version of the user's public key */
+  publicKeyVersion: number;
   isVerified: boolean;
   mfaEnabled: boolean;
   referralCode: string | null;
+  /** Number of users who signed up with this user's referral code */
+  referralCount: number;
+  /** Total BST tokens earned from referrals */
+  referralEarnings: number;
   createdAt: string;
   themePreference: 'light' | 'dark' | 'system';
+  /** Whether the user has completed the guided onboarding flow */
+  onboardingCompleted: boolean;
+}
+
+/**
+ * Referral statistics for a user's profile.
+ */
+export interface ReferralStats {
+  /** The user's unique referral code */
+  code: string;
+  /** Number of users who signed up with this code */
+  count: number;
+  /** Total BST tokens earned from referrals */
+  earnings: number;
+}
+
+/**
+ * DTO for validating a referral code.
+ */
+export interface ReferralDto {
+  /** Referral code to validate */
+  code: string;
 }
 
 /**
@@ -92,14 +122,36 @@ export interface JwtPayload {
 }
 
 /**
- * Instructor entry in categorized search results.
- * Only public profile fields are included.
+ * DTO for registering or rotating a user's E2E public key.
+ * The private key never leaves the client.
  */
-export interface InstructorSearchResult {
+export interface UpdatePublicKeyDto {
+  /** Base64-encoded public key */
+  publicKey: string;
+}
+
+/**
+ * Public key data returned when looking up a recipient's key.
+ */
+export interface PublicKeyDto {
+  userId: string;
+  /** Base64-encoded public key */
+  publicKey: string;
+  /** Version of the key — used to detect rotation */
+  publicKeyVersion: number;
+}
+
+/**
+ * A stored direct message.
+ * Only ciphertext is stored — the backend cannot decrypt message content.
+ */
+export interface DirectMessage {
   id: string;
-  username: string | null;
-  bio: string | null;
-  avatar: string | null;
-  /** Relevance score (ts_rank) — higher is more relevant */
-  relevance: number;
+  senderId: string;
+  recipientId: string;
+  /** Base64-encoded ciphertext encrypted with the recipient's public key */
+  ciphertext: string;
+  /** Version of the recipient's public key used for encryption */
+  recipientKeyVersion: number;
+  createdAt: string;
 }

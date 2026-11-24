@@ -6,6 +6,7 @@ import { TourProvider } from '@/components/ui/TourProvider';
 import { BottomMobileNav } from '@/components/layout/MobileNav';
 import { Navbar } from '@/components/layout/Navbar';
 import { ThemeProvider } from '@/components/ThemeProvider';
+import { ThemeToggle } from '@/components/ui/ThemeToggle';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://scoopdope.app';
 
@@ -38,7 +39,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="antialiased">
+      <body className="antialiased bg-white text-gray-900 dark:bg-gray-950 dark:text-gray-100">
         {/* Skip-to-main link — visible on focus only, for keyboard/screen-reader users */}
         <a
           href="#main-content"
@@ -50,13 +51,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <TourProvider>
             <Navbar />
             {/* pb-16 reserves space for the bottom tab bar on mobile */}
-            <main id="main-content" className="pb-16 md:pb-0">
+            <main
+              id="main-content"
+              className="pb-16 md:pb-0 bg-white text-gray-900 dark:bg-gray-950 dark:text-gray-100"
+            >
               {children}
             </main>
             <BottomMobileNav />
           </TourProvider>
           <NetworkStatus />
           <WalletButton />
+          <ThemeToggle />
         </ThemeProvider>
       </body>
     </html>

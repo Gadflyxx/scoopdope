@@ -20,6 +20,7 @@ import { AuditAction } from '../audit/audit-log.entity';
 import { TokenService } from './token.service';
 import { MfaService } from './mfa.service';
 import { OAuthService } from './oauth.service';
+import { ReferralsService } from '../referrals/referrals.service';
 import {
   ACCOUNT_LOCKOUT_COOLDOWN_MS,
   FAILED_LOGIN_ATTEMPT_WINDOW_MS,
@@ -41,6 +42,7 @@ export class AuthService {
     private tokenService: TokenService,
     private mfaService: MfaService,
     private oauthService: OAuthService,
+    private referralsService: ReferralsService,
     @InjectRepository(PasswordResetToken)
     private resetTokenRepo: Repository<PasswordResetToken>,
     private dataSource: DataSource,
@@ -67,7 +69,7 @@ export class AuthService {
     entry.count += 1;
   }
 
-  async register(email: string, password: string, refCode?: string) {
+  async register(email: string, password: string, refCode?: string, publicKey?: string) {
     const commonPasswords = new Set([
       'password',
       'password123',
@@ -90,12 +92,20 @@ export class AuthService {
 
     const passwordHash = await bcryptLib.hash(password, 10);
     const { token, hash, expiresAt } = this.tokenService.generateOpaqueToken(24);
-    const referralCode = crypto.randomBytes(6).toString('hex');
+    const referralCode = await this.generateUniqueReferralCode();
+
+    const normalizedRefCode = refCode?.trim();
+    if (normalizedRefCode && normalizedRefCode.toLowerCase() === referralCode.toLowerCase()) {
+      throw new BadRequestException('You cannot refer yourself');
+    }
 
     let referredBy: string | null = null;
-    if (refCode) {
-      const referrer = await this.usersService.findByReferralCode(refCode);
-      if (referrer) referredBy = referrer.id;
+    if (normalizedRefCode) {
+      const referrer = await this.usersService.findByReferralCode(normalizedRefCode);
+      if (!referrer) {
+        throw new BadRequestException('Invalid referral code');
+      }
+      referredBy = referrer.id;
     }
 
     const user = await this.usersService.create({
@@ -106,7 +116,13 @@ export class AuthService {
       verificationTokenExpiresAt: expiresAt,
       referralCode,
       referredBy,
+      publicKey: publicKey ?? null,
+      publicKeyVersion: publicKey ? 1 : 0,
     });
+
+    if (referredBy) {
+      await this.referralsService.recordReferral(referredBy, user.id, normalizedRefCode!);
+    }
 
     await this.mailService.sendVerificationEmail(user.email, token);
     await this.auditService.log(AuditAction.REGISTER, user.id, true, { email });
@@ -116,8 +132,74 @@ export class AuthService {
       userId: user.id,
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token,
+      publicKey: user.publicKey ?? null,
+      publicKeyVersion: user.publicKeyVersion ?? 0,
       message: 'Registration successful. Please verify your email.',
     };
+  }
+
+  /**
+   * #1372 – End-to-end encryption key management.
+   *
+   * Only public keys ever reach the server; private keys stay in the client.
+   * Every key change bumps `publicKeyVersion` so messages encrypted to an
+   * older key version can be flagged as undecryptable.
+   */
+  async setPublicKey(userId: string, publicKey: string) {
+    if (!publicKey || typeof publicKey !== 'string') {
+      throw new BadRequestException('A valid public key is required');
+    }
+
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    const nextVersion = (user.publicKeyVersion ?? 0) + 1;
+    await this.usersService.update(userId, {
+      publicKey,
+      publicKeyVersion: nextVersion,
+    });
+
+    await this.auditService.log(AuditAction.PUBLIC_KEY_UPDATED, userId, true, {
+      publicKeyVersion: nextVersion,
+    });
+
+    return { publicKey, publicKeyVersion: nextVersion };
+  }
+
+  async rotatePublicKey(userId: string, newPublicKey: string) {
+    if (!newPublicKey || typeof newPublicKey !== 'string') {
+      throw new BadRequestException('A valid public key is required');
+    }
+
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    const previousVersion = user.publicKeyVersion ?? 0;
+    const nextVersion = previousVersion + 1;
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(User).update(userId, {
+        publicKey: newPublicKey,
+        publicKeyVersion: nextVersion,
+      });
+
+      // Messages encrypted to the old key can no longer be decrypted by the
+      // recipient, so mark them invalid rather than leaving stale ciphertext.
+      await manager.query(
+        `UPDATE direct_messages
+           SET "isInvalid" = true
+         WHERE ("senderId" = $1 OR "recipientId" = $1)
+           AND "keyVersion" < $2`,
+        [userId, nextVersion],
+      );
+    });
+
+    await this.auditService.log(AuditAction.PUBLIC_KEY_ROTATED, userId, true, {
+      previousVersion,
+      publicKeyVersion: nextVersion,
+    });
+
+    return { publicKey: newPublicKey, publicKeyVersion: nextVersion };
   }
 
   async login(email: string, password: string, mfaToken?: string, ipAddress?: string, userAgent?: string) {
@@ -225,8 +307,28 @@ export class AuthService {
         username: user.username ?? null,
         createdAt: user.createdAt,
         themePreference: user.themePreference ?? 'system',
+        publicKey: user.publicKey ?? null,
+        publicKeyVersion: user.publicKeyVersion ?? 0,
       },
     };
+  }
+
+  /**
+   * #1394 – Mark the guided onboarding flow as completed for a user.
+   * Idempotent: calling it again for an already-onboarded user is a no-op.
+   */
+  async completeOnboarding(userId: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    if (!user.onboardingCompleted) {
+      await this.usersService.update(userId, { onboardingCompleted: true });
+      await this.auditService.log(AuditAction.USER_UPDATED, userId, true, {
+        onboardingCompleted: true,
+      });
+    }
+
+    return { onboardingCompleted: true };
   }
 
   /**

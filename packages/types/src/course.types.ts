@@ -10,7 +10,12 @@ export type CourseLevel = 'beginner' | 'intermediate' | 'advanced';
 export type CourseLanguage = 'en' | 'fr' | 'ar' | 'es';
 
 /** Lifecycle status of a course */
-export type CourseStatus = 'draft' | 'scheduled' | 'published';
+export type CourseStatus =
+  | 'draft'
+  | 'under_review'
+  | 'scheduled'
+  | 'published'
+  | 'rejected';
 
 /**
  * Public course summary — used in list views and search results.
@@ -26,6 +31,8 @@ export interface CourseSummary {
   instructorId: string | null;
   requiresKyc: boolean;
   averageRating: number | null;
+  /** Notes provided by the admin when a course is rejected */
+  rejectionNotes?: string | null;
   createdAt: string;
 }
 
@@ -108,68 +115,19 @@ export interface CreateReviewDto {
   comment?: string;
 }
 
-/** Entity types that can appear in search results */
-export type SearchResultType = 'course' | 'lesson' | 'instructor';
-
-/** Query parameters for the unified search endpoint */
-export interface SearchQueryDto {
-  /** Search keyword(s) */
-  q: string;
-  /** Optional entity type filter */
-  type?: SearchResultType;
-  page?: number;
-  limit?: number;
-}
-
-/** Common fields shared by all search result entities */
-interface SearchResultBase {
-  /** Relevance score (ts_rank), higher is more relevant */
-  relevance: number;
-}
-
-/** A course matched by the search query */
-export interface CourseSearchResult extends SearchResultBase {
-  type: 'course';
-  id: string;
-  title: string;
-  description: string;
-  level: CourseLevel;
-  language: CourseLanguage;
-  instructorId: string | null;
-}
-
-/** A lesson matched by the search query */
-export interface LessonSearchResult extends SearchResultBase {
-  type: 'lesson';
-  id: string;
-  title: string;
-  /** Snippet of the lesson body containing the match */
-  content: string | null;
-  moduleId: string;
+/**
+ * Completion status of a single prerequisite course for a learner.
+ */
+export interface PrerequisiteStatus {
   courseId: string;
-  courseTitle: string;
+  title: string;
+  completed: boolean;
 }
 
-/** An instructor profile matched by the search query */
-export interface InstructorSearchResult extends SearchResultBase {
-  type: 'instructor';
-  id: string;
-  displayName: string;
-  bio: string | null;
-  avatarUrl: string | null;
-}
-
-/** Discriminated union of all search result entities */
-export type SearchResult =
-  | CourseSearchResult
-  | LessonSearchResult
-  | InstructorSearchResult;
-
-/** Paginated response for the unified search endpoint */
-export interface SearchResponseDto {
-  /** Results ranked by relevance descending */
-  results: SearchResult[];
-  total: number;
-  page: number;
-  limit: number;
+/**
+ * Response shape for the prerequisites status endpoint of a course.
+ */
+export interface CoursePrerequisitesResponse {
+  allSatisfied: boolean;
+  prerequisites: PrerequisiteStatus[];
 }

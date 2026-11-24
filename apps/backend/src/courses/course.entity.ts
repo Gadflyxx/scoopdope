@@ -16,10 +16,12 @@ import { Category } from './category.entity';
 
 export enum CourseStatus {
   DRAFT = 'draft',
+  UNDER_REVIEW = 'under_review',
   PENDING_REVIEW = 'pending_review',
   SCHEDULED = 'scheduled',
   PENDING = 'pending',
   PUBLISHED = 'published',
+  REJECTED = 'rejected',
   ARCHIVED = 'archived',
 }
 
@@ -27,6 +29,13 @@ export enum CourseDifficulty {
   BEGINNER = 'beginner',
   INTERMEDIATE = 'intermediate',
   ADVANCED = 'advanced',
+}
+
+export enum CourseVisibility {
+  PUBLIC = 'public',
+  UNLISTED = 'unlisted',
+  ENROLLED_ONLY = 'enrolled_only',
+  PRIVATE = 'private',
 }
 
 @Entity('courses')
@@ -57,6 +66,16 @@ export class Course {
 
   @Column({ type: 'enum', enum: CourseStatus, default: CourseStatus.DRAFT })
   status: CourseStatus;
+
+  /**
+   * Visibility level controlling who may discover and access the course.
+   * - public: listed in search and accessible to everyone
+   * - unlisted: accessible via direct link but hidden from search
+   * - enrolled_only: accessible only to enrolled learners
+   * - private: accessible only to the instructor and admins
+   */
+  @Column({ type: 'enum', enum: CourseVisibility, default: CourseVisibility.PUBLIC })
+  visibility: CourseVisibility;
 
   /** @deprecated use status instead */
   @Column({ default: false })
@@ -90,6 +109,10 @@ export class Course {
 
   @Column({ nullable: true, type: 'timestamptz' })
   publishedAt: Date | null;
+
+  /** Optional notes provided by the admin when rejecting a course. */
+  @Column({ nullable: true, type: 'text' })
+  rejectionNotes: string | null;
 
   /**
    * Maximum number of students that can be enrolled simultaneously.
@@ -139,8 +162,13 @@ export class Course {
   @OneToMany(() => Review, (review) => review.course, { cascade: ['remove'] })
   reviews: Review[];
 
+  /** Prerequisite courses that must be completed before enrolling in this course. */
   @OneToMany(() => CoursePrerequisite, (cp) => cp.course, { cascade: ['remove'] })
   prerequisites: CoursePrerequisite[];
+
+  /** Inverse side: courses that list this course as a prerequisite. */
+  @OneToMany(() => CoursePrerequisite, (cp) => cp.prerequisiteCourse)
+  prerequisiteOf: CoursePrerequisite[];
 
   averageRating?: number | null;
 
@@ -163,5 +191,32 @@ export class Course {
     this.status = CourseStatus.PUBLISHED;
     this.isPublished = true;
     this.publishedAt = new Date();
+  }
+
+  /**
+   * Submit the course for moderation review.
+   * Clears any previous rejection notes so the reviewer starts fresh.
+   */
+  submitForReview(): void {
+    this.status = CourseStatus.UNDER_REVIEW;
+    this.isPublished = false;
+    this.rejectionNotes = null;
+  }
+
+  /**
+   * Approve a course under review and publish it.
+   */
+  approve(): void {
+    this.publish();
+    this.rejectionNotes = null;
+  }
+
+  /**
+   * Reject a course under review, optionally recording reviewer notes.
+   */
+  reject(notes?: string | null): void {
+    this.status = CourseStatus.REJECTED;
+    this.isPublished = false;
+    this.rejectionNotes = notes ?? null;
   }
 }

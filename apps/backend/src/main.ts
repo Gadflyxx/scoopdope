@@ -169,6 +169,10 @@ async function bootstrap() {
   logger.log(`Nest application initialized in ${Date.now() - startupStartedAt}ms`);
   app.enableShutdownHooks();
 
+  // #1390: Trust the first proxy hop so req.ip reflects the real client IP
+  // behind load balancers. Required for the admin IP allowlist to work.
+  app.set('trust proxy', 1);
+
   // #1026: Handle SIGTERM/SIGINT for graceful shutdown.
   registerGracefulShutdown(app, logger);
 

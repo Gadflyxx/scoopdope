@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import { CourseModule } from './course-module.entity';
 import { Assignment } from '../assignments/assignment.entity';
+import { LessonResource } from '../downloads/lesson-resource.entity';
 
 @Entity('lessons')
 export class Lesson {
@@ -75,6 +76,13 @@ export class Lesson {
     cascade: ['remove'],
   })
   assignments: Assignment[];
+
+  // Why: deleting a lesson removes its downloadable resources to prevent
+  // orphaned files and stale storage references.
+  @OneToMany(() => LessonResource, (resource) => resource.lesson, {
+    cascade: ['remove'],
+  })
+  resources: LessonResource[];
 
   @CreateDateColumn()
   createdAt: Date;

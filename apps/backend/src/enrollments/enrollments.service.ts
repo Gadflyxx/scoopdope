@@ -14,9 +14,10 @@ import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
 import { CourseStatus } from '../courses/entities/course.entity';
 import { CoursesService } from '../courses/courses.service';
 import { CourseVersioningService } from '../courses/course-versioning.service';
-import { PrerequisitesService } from '../learning-paths/prerequisites.service';
+import { PrerequisitesService } from '../courses/prerequisites.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { EnrollmentConfirmedEvent } from './events/enrollment-confirmed.event';
+import { ReferralsService } from '../referrals/referrals.service';
 
 /** TTL for cached enrollment counts, in milliseconds. */
 const ENROLLMENT_COUNT_TTL_MS = 60_000;
@@ -27,6 +28,31 @@ const PROCESSED_WEBHOOK_EVENT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 interface CachedCount {
   value: number;
   expiresAt: number;
+}
+
+/** A single point in the 12-month revenue time series. */
+export interface MonthlyRevenuePoint {
+  /** Month in `YYYY-MM` format (UTC). */
+  month: string;
+  revenue: number;
+}
+
+/** Aggregated revenue figures consumed by the admin revenue dashboard. */
+export interface EnrollmentRevenueSummary {
+  /** Revenue collected in the current calendar month (UTC). */
+  mrr: number;
+  /** All-time revenue collected. */
+  totalRevenue: number;
+  /** Revenue per month for the last 12 months, oldest first. */
+  monthlyRevenue: MonthlyRevenuePoint[];
+  /** Number of refunds in the last 30 days. */
+  refundCount: number;
+  /** Total refunded amount in the last 30 days. */
+  refundAmount: number;
+  /** Refund amount divided by total revenue (0 when there is no revenue). */
+  refundRate: number;
+  /** Length of the refund measurement window, in days. */
+  refundWindowDays: number;
 }
 
 @Injectable()
@@ -45,6 +71,7 @@ export class EnrollmentsService {
     private readonly prereqService: PrerequisitesService,
     private readonly eventEmitter: EventEmitter2,
     private readonly metrics: MetricsService,
+    private readonly referralsService: ReferralsService,
   ) {}
 
   /**
@@ -163,7 +190,27 @@ export class EnrollmentsService {
 
     this.metrics.incrementEnrollment(courseId, 'all');
 
+    // Award the referrer (50 BST) once the referred learner completes their
+    // first purchase. Idempotent: the referral is only rewarded a single time.
+    await this.rewardReferralOnFirstPurchase(userId);
+
     return enrollment;
+  }
+
+  /**
+   * Reward the referrer of `userId` if this is the referred learner's first
+   * purchase. Failures are logged but never block the enrollment itself.
+   */
+  private async rewardReferralOnFirstPurchase(userId: string): Promise<void> {
+    try {
+      await this.referralsService.rewardReferrerOnFirstPurchase(userId);
+    } catch (error) {
+      this.logger.error(
+        `Failed to process referral reward for user ${userId}: ${
+          (error as Error)?.message ?? error
+        }`,
+      );
+    }
   }
 
   async findByCourse(courseId: string): Promise<Enrollment[]> {
@@ -270,5 +317,85 @@ export class EnrollmentsService {
       throw new NotFoundException(`Enrollment ${id} not found`);
     }
     await this.enrollmentRepository.remove(enrollment);
+  }
+
+  /**
+   * Aggregate enrollment/payment data for the admin revenue dashboard.
+   *
+   * Read-only. All aggregation is performed in the database via the query
+   * builder so no rows are loaded into memory.
+   */
+  async getRevenueSummary(): Promise<EnrollmentRevenueSummary> {
+    const now = new Date();
+    const monthStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+    );
+    const seriesStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1),
+    );
+    const refundWindowStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const totalRevenueRow = await this.enrollmentRepository
+      .createQueryBuilder('enrollment')
+      .select('COALESCE(SUM(enrollment.amountPaid), 0)', 'total')
+      .getRawOne<{ total: string | number | null }>();
+
+    const mrrRow = await this.enrollmentRepository
+      .createQueryBuilder('enrollment')
+      .select('COALESCE(SUM(enrollment.amountPaid), 0)', 'total')
+      .where('enrollment.enrolledAt >= :monthStart', { monthStart })
+      .getRawOne<{ total: string | number | null }>();
+
+    const monthlyRows = await this.enrollmentRepository
+      .createQueryBuilder('enrollment')
+      .select("TO_CHAR(DATE_TRUNC('month', enrollment.enrolledAt), 'YYYY-MM')", 'month')
+      .addSelect('COALESCE(SUM(enrollment.amountPaid), 0)', 'total')
+      .where('enrollment.enrolledAt >= :seriesStart', { seriesStart })
+      .groupBy("DATE_TRUNC('month', enrollment.enrolledAt)")
+      .orderBy("DATE_TRUNC('month', enrollment.enrolledAt)", 'ASC')
+      .getRawMany<{ month: string; total: string | number | null }>();
+
+    const refundRows = await this.enrollmentRepository
+      .createQueryBuilder('enrollment')
+      .select('COUNT(*)', 'count')
+      .addSelect('COALESCE(SUM(enrollment.amountPaid), 0)', 'amount')
+      .where('enrollment.refundedAt >= :refundWindowStart', {
+        refundWindowStart,
+      })
+      .getRawOne<{ count: string | number | null; amount: string | number | null }>();
+
+    const totalRevenue = Number(totalRevenueRow?.total ?? 0);
+    const mrr = Number(mrrRow?.total ?? 0);
+    const refundCount = Number(refundRows?.count ?? 0);
+    const refundAmount = Number(refundRows?.amount ?? 0);
+
+    const monthlyTotals = new Map<string, number>();
+    for (const row of monthlyRows) {
+      monthlyTotals.set(row.month, Number(row.total ?? 0));
+    }
+
+    const monthlyRevenue: MonthlyRevenuePoint[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      const monthDate = new Date(
+        Date.UTC(seriesStart.getUTCFullYear(), seriesStart.getUTCMonth() + i, 1),
+      );
+      const month = `${monthDate.getUTCFullYear()}-${String(
+        monthDate.getUTCMonth() + 1,
+      ).padStart(2, '0')}`;
+      monthlyRevenue.push({ month, revenue: monthlyTotals.get(month) ?? 0 });
+    }
+
+    const refundRate =
+      totalRevenue > 0 ? refundAmount / totalRevenue : 0;
+
+    return {
+      mrr,
+      totalRevenue,
+      monthlyRevenue,
+      refundCount,
+      refundAmount,
+      refundRate,
+      refundWindowDays: 30,
+    };
   }
 }

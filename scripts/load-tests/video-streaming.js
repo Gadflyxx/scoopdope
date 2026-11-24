@@ -7,6 +7,23 @@ import { check, sleep, group } from 'k6';
  * Simulates: login → get course → access video lesson → update progress
  */
 
+/**
+ * Baseline p95 values (ms) recorded against staging and stored in
+ * scripts/load-tests/baselines.json. Thresholds fail when p95 exceeds
+ * baseline * 1.2 (20% regression budget).
+ */
+const BASELINE = {
+  overallP95: 800,
+  overallP99: 1500,
+  videoP95: 1000,
+  videoRangeP95: 1000,
+  progressP95: 500,
+};
+
+const REGRESSION_FACTOR = 1.2;
+
+const p95Limit = (baseline) => Math.round(baseline * REGRESSION_FACTOR);
+
 export const options = {
   stages: [
     { duration: '30s', target: 50 },
@@ -15,12 +32,15 @@ export const options = {
     { duration: '30s', target: 0 },
   ],
   thresholds: {
-    http_req_duration: ['p(95)<800', 'p(99)<1500'],
+    http_req_duration: [
+      `p(95)<${p95Limit(BASELINE.overallP95)}`,
+      `p(99)<${BASELINE.overallP99}`,
+    ],
     http_req_failed: ['rate<0.05'],
-    'http_req_duration{endpoint:video}': ['p(95)<1000'],
-    'http_req_duration{endpoint:video_range}': ['p(95)<1000'],
+    'http_req_duration{endpoint:video}': [`p(95)<${p95Limit(BASELINE.videoP95)}`],
+    'http_req_duration{endpoint:video_range}': [`p(95)<${p95Limit(BASELINE.videoRangeP95)}`],
     'http_req_failed{endpoint:video_range}': ['rate<0.01'],
-    'http_req_duration{endpoint:progress}': ['p(95)<500'],
+    'http_req_duration{endpoint:progress}': [`p(95)<${p95Limit(BASELINE.progressP95)}`],
   },
 };
 

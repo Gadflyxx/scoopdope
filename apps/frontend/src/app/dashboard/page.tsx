@@ -234,7 +234,7 @@ export default function DashboardPage() {
   return (
     <ProtectedRoute>
       <OnboardingWizard />
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10 bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">
 
         {/* ── Header ── */}
         <section>
@@ -256,7 +256,7 @@ export default function DashboardPage() {
         </section>
 
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700 dark:border-red-700 dark:bg-red-900/20">
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700 dark:border-red-700 dark:bg-red-900/20 dark:text-red-300">
             {error}
           </div>
         )}
@@ -492,15 +492,15 @@ export default function DashboardPage() {
                     {enrollment.bundle.title}
                   </h3>
                   <div className="mt-2 flex items-center justify-between text-sm">
-                    <span className="text-gray-500">
+                    <span className="text-gray-500 dark:text-gray-400">
                       {enrollment.bundle.courses.length} Courses
                     </span>
                     {enrollment.completedAt ? (
-                      <span className="text-emerald-600 font-bold flex items-center gap-1">
+                      <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
                         <CheckCircle2 className="h-4 w-4" /> Completed
                       </span>
                     ) : (
-                      <span className="text-blue-600 font-bold">In Progress</span>
+                      <span className="text-blue-600 dark:text-blue-400 font-bold">In Progress</span>
                     )}
                   </div>
                 </div>
@@ -528,13 +528,13 @@ export default function DashboardPage() {
                       {lp?.title}
                     </h3>
                     <div className="mt-2 flex items-center justify-between text-sm">
-                      <span className="text-gray-500">{total} Courses</span>
+                      <span className="text-gray-500 dark:text-gray-400">{total} Courses</span>
                       {enrollment.completedAt ? (
-                        <span className="text-emerald-600 font-bold flex items-center gap-1">
+                        <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
                           <CheckCircle2 className="h-4 w-4" /> Completed
                         </span>
                       ) : (
-                        <span className="text-purple-600 font-bold">
+                        <span className="text-purple-600 dark:text-purple-400 font-bold">
                           In Progress
                         </span>
                       )}
@@ -555,7 +555,7 @@ export default function DashboardPage() {
               </h2>
               <Link
                 href="/recommendations"
-                className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
               >
                 View all →
               </Link>
@@ -619,7 +619,7 @@ export default function DashboardPage() {
               enrolledCourses.map((course) => (
                 <div
                   key={course.id}
-                  className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 flex items-center gap-4"
+                  className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 flex items-center gap-4 transition-colors"
                 >
                   <CircularProgress value={course.progressPct} size={72} strokeWidth={7} />
                   <div className="flex-1 min-w-0">
@@ -644,7 +644,7 @@ export default function DashboardPage() {
           <h2 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
             Recent Credentials
           </h2>
-          <div className="mt-3 space-y-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+          <div className="mt-3 space-y-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 transition-colors">
             {isLoading ? (
               Array.from({ length: 3 }).map((_, idx) => (
                 <Skeleton key={idx} className="w-full h-6" />
@@ -657,7 +657,7 @@ export default function DashboardPage() {
               recentCredentials.map((cred) => (
                 <div
                   key={cred.id}
-                  className="flex justify-between items-center text-sm text-gray-700 dark:text-gray-300"
+                  className="flex justify-between items-center text-sm text-gray-700 dark:text-gray-300 border-b border-gray-100 dark:border-gray-800 last:border-0 pb-1.5 last:pb-0"
                 >
                   <span>{cred.course?.title ?? `Course ${cred.courseId}`}</span>
                   <span>{new Date(cred.issuedAt).toLocaleDateString()}</span>

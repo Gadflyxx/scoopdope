@@ -77,6 +77,120 @@ const applicationMessages = {
   },
 };
 
+const qaMessages = {
+  en: {
+    newQuestionSubject: 'New question on your lesson',
+    newQuestionTitle: 'A learner asked a question',
+    newQuestionBody: 'A new question was posted on your lesson:',
+    questionAnsweredSubject: 'Your question was answered',
+    questionAnsweredTitle: 'Your question has an answer',
+    questionAnsweredBody: 'An instructor answered your question:',
+    questionLabel: 'Question',
+    answerLabel: 'Answer',
+    lessonLabel: 'Lesson',
+    greeting: 'Hello',
+  },
+  es: {
+    newQuestionSubject: 'Nueva pregunta en tu lección',
+    newQuestionTitle: 'Un estudiante ha hecho una pregunta',
+    newQuestionBody: 'Se ha publicado una nueva pregunta en tu lección:',
+    questionAnsweredSubject: 'Tu pregunta ha sido respondida',
+    questionAnsweredTitle: 'Tu pregunta tiene respuesta',
+    questionAnsweredBody: 'Un instructor ha respondido a tu pregunta:',
+    questionLabel: 'Pregunta',
+    answerLabel: 'Respuesta',
+    lessonLabel: 'Lección',
+    greeting: 'Hola',
+  },
+  fr: {
+    newQuestionSubject: 'Nouvelle question sur votre leçon',
+    newQuestionTitle: 'Un apprenant a posé une question',
+    newQuestionBody: 'Une nouvelle question a été publiée sur votre leçon :',
+    questionAnsweredSubject: 'Votre question a reçu une réponse',
+    questionAnsweredTitle: 'Votre question a une réponse',
+    questionAnsweredBody: 'Un formateur a répondu à votre question :',
+    questionLabel: 'Question',
+    answerLabel: 'Réponse',
+    lessonLabel: 'Leçon',
+    greeting: 'Bonjour',
+  },
+  ar: {
+    newQuestionSubject: 'سؤال جديد في درسك',
+    newQuestionTitle: 'طرح أحد المتعلمين سؤالًا',
+    newQuestionBody: 'تم نشر سؤال جديد في درسك:',
+    questionAnsweredSubject: 'تمت الإجابة على سؤالك',
+    questionAnsweredTitle: 'سؤالك لديه إجابة',
+    questionAnsweredBody: 'أجاب مدرّس على سؤالك:',
+    questionLabel: 'السؤال',
+    answerLabel: 'الإجابة',
+    lessonLabel: 'الدرس',
+    greeting: 'مرحبًا',
+  },
+};
+
+const moderationMessages = {
+  en: {
+    submittedSubject: 'Course submitted for review',
+    submittedTitle: 'A course is awaiting moderation',
+    submittedBody: 'An instructor submitted a course for review:',
+    approvedSubject: 'Course approved',
+    approvedTitle: 'Your course has been approved',
+    approvedBody: 'Your course has been reviewed and published:',
+    rejectedSubject: 'Course rejected',
+    rejectedTitle: 'Your course was not approved',
+    rejectedBody: 'Your course was reviewed and rejected:',
+    courseLabel: 'Course',
+    instructorLabel: 'Instructor',
+    notesLabel: 'Reviewer notes',
+    greeting: 'Hello',
+  },
+  es: {
+    submittedSubject: 'Curso enviado para revisión',
+    submittedTitle: 'Un curso está pendiente de moderación',
+    submittedBody: 'Un instructor ha enviado un curso para revisión:',
+    approvedSubject: 'Curso aprobado',
+    approvedTitle: 'Tu curso ha sido aprobado',
+    approvedBody: 'Tu curso ha sido revisado y publicado:',
+    rejectedSubject: 'Curso rechazado',
+    rejectedTitle: 'Tu curso no ha sido aprobado',
+    rejectedBody: 'Tu curso ha sido revisado y rechazado:',
+    courseLabel: 'Curso',
+    instructorLabel: 'Instructor',
+    notesLabel: 'Comentarios del revisor',
+    greeting: 'Hola',
+  },
+  fr: {
+    submittedSubject: 'Cours soumis à examen',
+    submittedTitle: 'Un cours est en attente de modération',
+    submittedBody: 'Un formateur a soumis un cours à examen :',
+    approvedSubject: 'Cours approuvé',
+    approvedTitle: 'Votre cours a été approuvé',
+    approvedBody: 'Votre cours a été examiné et publié :',
+    rejectedSubject: 'Cours rejeté',
+    rejectedTitle: 'Votre cours n’a pas été approuvé',
+    rejectedBody: 'Votre cours a été examiné et rejeté :',
+    courseLabel: 'Cours',
+    instructorLabel: 'Formateur',
+    notesLabel: 'Commentaire de la personne chargée de l’examen',
+    greeting: 'Bonjour',
+  },
+  ar: {
+    submittedSubject: 'تم إرسال الدورة للمراجعة',
+    submittedTitle: 'دورة بانتظار المراجعة',
+    submittedBody: 'أرسل مدرّس دورة للمراجعة:',
+    approvedSubject: 'تمت الموافقة على الدورة',
+    approvedTitle: 'تمت الموافقة على دورتك',
+    approvedBody: 'تمت مراجعة دورتك ونشرها:',
+    rejectedSubject: 'تم رفض الدورة',
+    rejectedTitle: 'لم تتم الموافقة على دورتك',
+    rejectedBody: 'تمت مراجعة دورتك ورفضها:',
+    courseLabel: 'الدورة',
+    instructorLabel: 'المدرّس',
+    notesLabel: 'ملاحظات المراجع',
+    greeting: 'مرحبًا',
+  },
+};
+
 const waitlistMessages = {
   en: {
     subject: "You're on the waitlist!",
@@ -116,6 +230,8 @@ const waitlistMessages = {
 
 type ApplicationLocale = keyof typeof applicationMessages;
 type WaitlistLocale = keyof typeof waitlistMessages;
+type QaLocale = keyof typeof qaMessages;
+type ModerationLocale = keyof typeof moderationMessages;
 
 const isRtlLocale = (locale?: string) => (locale || 'en').split('-')[0].toLowerCase() === 'ar';
 
@@ -184,6 +300,80 @@ const applicationTemplate = (
   };
 };
 
+const qaTemplate = (
+  kind: 'newQuestion' | 'questionAnswered',
+  data: {
+    userName: string;
+    question: string;
+    lessonTitle?: string | null;
+    answer?: string | null;
+    locale?: string;
+  }
+) => {
+  const locale = (data.locale || 'en').split('-')[0] as QaLocale;
+  const messages = qaMessages[locale] || qaMessages.en;
+  const title = messages[`${kind}Title`];
+  const body = messages[`${kind}Body`];
+  const lessonLine = data.lessonTitle
+    ? `<p><strong>${messages.lessonLabel}:</strong> ${escapeHtml(data.lessonTitle)}</p>`
+    : '';
+  const answerBlock =
+    kind === 'questionAnswered' && data.answer
+      ? `<p><strong>${messages.answerLabel}:</strong></p><blockquote>${escapeHtml(data.answer)}</blockquote>`
+      : '';
+
+  const inner = `
+      <h2>${title}</h2>
+      <p>${messages.greeting} ${escapeHtml(data.userName)},</p>
+      <p>${body}</p>
+      ${lessonLine}
+      <p><strong>${messages.questionLabel}:</strong></p>
+      <blockquote>${escapeHtml(data.question)}</blockquote>
+      ${answerBlock}`;
+
+  return {
+    subject: messages[`${kind}Subject`],
+    html: wrapEmail(locale, inner),
+  };
+};
+
+const moderationTemplate = (
+  kind: 'submitted' | 'approved' | 'rejected',
+  data: {
+    userName: string;
+    courseTitle: string;
+    instructorName?: string | null;
+    notes?: string | null;
+    locale?: string;
+  }
+) => {
+  const locale = (data.locale || 'en').split('-')[0] as ModerationLocale;
+  const messages = moderationMessages[locale] || moderationMessages.en;
+  const title = messages[`${kind}Title`];
+  const body = messages[`${kind}Body`];
+  const instructorLine =
+    kind === 'submitted' && data.instructorName
+      ? `<p><strong>${messages.instructorLabel}:</strong> ${escapeHtml(data.instructorName)}</p>`
+      : '';
+  const notesBlock =
+    kind === 'rejected' && data.notes
+      ? `<p><strong>${messages.notesLabel}:</strong></p><blockquote>${escapeHtml(data.notes)}</blockquote>`
+      : '';
+
+  const inner = `
+      <h2>${title}</h2>
+      <p>${messages.greeting} ${escapeHtml(data.userName)},</p>
+      <p>${body}</p>
+      <p><strong>${messages.courseLabel}:</strong> ${escapeHtml(data.courseTitle)}</p>
+      ${instructorLine}
+      ${notesBlock}`;
+
+  return {
+    subject: messages[`${kind}Subject`],
+    html: wrapEmail(locale, inner),
+  };
+};
+
 export const emailTemplates = {
   applicationReceived: (data: { userName: string; locale?: string }) =>
     applicationTemplate('received', data),
@@ -197,6 +387,42 @@ export const emailTemplates = {
     adminNote?: string | null;
     rejectionReason?: string | null;
   }) => applicationTemplate('rejected', data),
+
+  newQuestion: (data: {
+    userName: string;
+    question: string;
+    lessonTitle?: string | null;
+    locale?: string;
+  }) => qaTemplate('newQuestion', data),
+
+  questionAnswered: (data: {
+    userName: string;
+    question: string;
+    answer?: string | null;
+    lessonTitle?: string | null;
+    locale?: string;
+  }) => qaTemplate('questionAnswered', data),
+
+  courseSubmittedForReview: (data: {
+    userName: string;
+    courseTitle: string;
+    instructorName?: string | null;
+    locale?: string;
+  }) => moderationTemplate('submitted', data),
+
+  courseApproved: (data: {
+    userName: string;
+    courseTitle: string;
+    notes?: string | null;
+    locale?: string;
+  }) => moderationTemplate('approved', data),
+
+  courseRejected: (data: {
+    userName: string;
+    courseTitle: string;
+    notes?: string | null;
+    locale?: string;
+  }) => moderationTemplate('rejected', data),
 
   enrollment: (data: { userName: string; courseTitle: string; courseUrl: string; unsubscribeUrl: string; locale?: string }): EmailTemplate => {
     const html = wrapEmail(
@@ -295,6 +521,52 @@ export const emailTemplates = {
     
     return {
       subject: `⏰ Reminder: "${data.sessionTitle}" starts in ${data.timeLabel}`,
+      html,
+      text: htmlToPlainText(html),
+    };
+  },
+
+  batchEnrollmentComplete: (data: { userName: string; jobId: string; total: number; processed: number; failed: number; statusUrl: string; unsubscribeUrl: string; locale?: string }): EmailTemplate => {
+    const html = wrapEmail(
+      data.locale,
+      `
+        <h2>✅ Batch Enrollment Complete</h2>
+        <p>Hi ${data.userName},</p>
+        <p>Your batch enrollment job <code>${data.jobId}</code> has finished processing.</p>
+        <ul>
+          <li><strong>Total enrollments:</strong> ${data.total}</li>
+          <li><strong>Processed:</strong> ${data.processed}</li>
+          <li><strong>Failed:</strong> ${data.failed}</li>
+        </ul>
+        <a href="${data.statusUrl}" style="background:#4F46E5;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">View Results</a>
+        <p style="margin-top:40px;font-size:12px;color:#999">
+          <a href="${data.unsubscribeUrl}">Unsubscribe</a>
+        </p>`
+    );
+
+    return {
+      subject: `Batch enrollment job ${data.jobId} completed`,
+      html,
+      text: htmlToPlainText(html),
+    };
+  },
+
+  dataExportReady: (data: { userName: string; downloadUrl: string; expiresAt: string; unsubscribeUrl: string; locale?: string }): EmailTemplate => {
+    const html = wrapEmail(
+      data.locale,
+      `
+        <h2>📦 Your Data Export is Ready</h2>
+        <p>Hi ${data.userName},</p>
+        <p>Your personal data export is ready to download. The ZIP archive contains separate JSON files for each data category.</p>
+        <a href="${data.downloadUrl}" style="background:#4F46E5;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">Download Export</a>
+        <p>This download link expires on <strong>${data.expiresAt}</strong> (48 hours after it was generated).</p>
+        <p style="margin-top:40px;font-size:12px;color:#999">
+          <a href="${data.unsubscribeUrl}">Unsubscribe</a>
+        </p>`
+    );
+
+    return {
+      subject: 'Your data export is ready',
       html,
       text: htmlToPlainText(html),
     };

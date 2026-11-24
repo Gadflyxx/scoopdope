@@ -4,12 +4,183 @@ import { Repository } from 'typeorm';
 import { CourseAccessControl, AccessRole } from './course-access-control.entity';
 import { AccessLog, AccessAttemptType } from './access-log.entity';
 
+/**
+ * Visibility levels for a course.
+ *
+ * - `public`: anyone (including unauthenticated callers) may access.
+ * - `unlisted`: anyone with the course ID may access directly, but the course
+ *   must be excluded from search results.
+ * - `enrolled_only`: only callers with an active enrollment (or ownership/admin).
+ * - `private`: only callers with an explicit access grant (or ownership/admin).
+ */
+export enum CourseVisibility {
+  PUBLIC = 'public',
+  UNLISTED = 'unlisted',
+  ENROLLED_ONLY = 'enrolled_only',
+  PRIVATE = 'private',
+}
+
+/**
+ * The caller's relationship to a course, used when evaluating visibility.
+ */
+export enum CourseRelationship {
+  NONE = 'none',
+  ENROLLED = 'enrolled',
+  OWNER = 'owner',
+  ADMIN = 'admin',
+}
+
+export interface CourseVisibilityContext {
+  visibility: CourseVisibility;
+  /** The course owner/instructor id, if known. */
+  ownerId?: string | null;
+  /** Whether the caller has an active enrollment. */
+  isEnrolled?: boolean;
+  /** Whether the caller holds an admin role. */
+  isAdmin?: boolean;
+}
+
+export interface CourseAccessResult {
+  allowed: boolean;
+  reason?: string;
+  relationship: CourseRelationship;
+  visibility: CourseVisibility;
+}
+
+/**
+ * Minimal shape required to evaluate search visibility. Kept structural so the
+ * helper works with any course entity that exposes a visibility field.
+ */
+export interface SearchableCourse {
+  visibility?: CourseVisibility | string | null;
+}
+
 @Injectable()
 export class AccessControlService {
   constructor(
     @InjectRepository(CourseAccessControl) private accessRepo: Repository<CourseAccessControl>,
     @InjectRepository(AccessLog) private logRepo: Repository<AccessLog>,
   ) {}
+
+  /**
+   * Resolves the caller's relationship to a course based on the supplied context.
+   * Precedence: admin > owner/instructor > enrolled > none.
+   */
+  resolveRelationship(
+    userId: string | null,
+    context: CourseVisibilityContext,
+  ): CourseRelationship {
+    if (context.isAdmin) {
+      return CourseRelationship.ADMIN;
+    }
+    if (userId && context.ownerId && userId === context.ownerId) {
+      return CourseRelationship.OWNER;
+    }
+    if (userId && context.isEnrolled) {
+      return CourseRelationship.ENROLLED;
+    }
+    return CourseRelationship.NONE;
+  }
+
+  /**
+   * Evaluates whether a caller may access a course given its visibility level.
+   *
+   * - `public`: everyone is allowed.
+   * - `unlisted`: everyone with the ID is allowed (search exclusion is handled
+   *   separately by `isVisibleInSearch`).
+   * - `enrolled_only`: requires an active enrollment, ownership, or admin.
+   * - `private`: requires an explicit access grant, ownership, or admin.
+   *
+   * When `requiredVisibility` is supplied it overrides the course's own
+   * visibility, allowing callers to enforce a stricter level for a given
+   * endpoint (e.g. lesson/resource endpoints).
+   */
+  async canAccessCourse(
+    userId: string | null,
+    courseId: string,
+    requiredVisibility?: CourseVisibility,
+    context?: CourseVisibilityContext,
+  ): Promise<CourseAccessResult> {
+    const visibility = requiredVisibility ?? context?.visibility ?? CourseVisibility.PRIVATE;
+    const relationship = context
+      ? this.resolveRelationship(userId, context)
+      : CourseRelationship.NONE;
+
+    // Admins and owners/instructors always have access regardless of visibility.
+    if (relationship === CourseRelationship.ADMIN || relationship === CourseRelationship.OWNER) {
+      return { allowed: true, relationship, visibility };
+    }
+
+    switch (visibility) {
+      case CourseVisibility.PUBLIC:
+        return { allowed: true, relationship, visibility };
+
+      case CourseVisibility.UNLISTED:
+        // Direct-ID access is permitted; search exclusion is enforced elsewhere.
+        return { allowed: true, relationship, visibility };
+
+      case CourseVisibility.ENROLLED_ONLY:
+        if (relationship === CourseRelationship.ENROLLED) {
+          return { allowed: true, relationship, visibility };
+        }
+        return {
+          allowed: false,
+          reason: 'Enrollment required to access this course',
+          relationship,
+          visibility,
+        };
+
+      case CourseVisibility.PRIVATE:
+      default: {
+        if (!userId) {
+          return {
+            allowed: false,
+            reason: 'Authentication required to access this course',
+            relationship,
+            visibility,
+          };
+        }
+        const access = await this.accessRepo.findOne({
+          where: { courseId, userId },
+        });
+        if (access && access.isActive) {
+          if (access.subscriptionExpiryDate && new Date() > access.subscriptionExpiryDate) {
+            return {
+              allowed: false,
+              reason: 'Subscription expired',
+              relationship,
+              visibility,
+            };
+          }
+          return { allowed: true, relationship, visibility };
+        }
+        return {
+          allowed: false,
+          reason: 'Access to this private course requires an explicit grant',
+          relationship,
+          visibility,
+        };
+      }
+    }
+  }
+
+  /**
+   * Determines whether a course should appear in search results.
+   *
+   * Only `public` and `enrolled_only` courses are searchable. `unlisted` courses
+   * are reachable by direct ID but hidden from search, and `private` courses are
+   * never listed. Courses with an unknown/missing visibility default to hidden.
+   */
+  isVisibleInSearch(course: SearchableCourse | null | undefined): boolean {
+    if (!course) {
+      return false;
+    }
+    const visibility = course.visibility;
+    return (
+      visibility === CourseVisibility.PUBLIC ||
+      visibility === CourseVisibility.ENROLLED_ONLY
+    );
+  }
 
   async grantAccess(
     courseId: string,
