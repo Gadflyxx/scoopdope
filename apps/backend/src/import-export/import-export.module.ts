@@ -4,6 +4,8 @@ import { MulterModule } from '@nestjs/platform-express';
 import { Course } from '../courses/course.entity';
 import { CourseModule } from '../courses/course-module.entity';
 import { Lesson } from '../courses/lesson.entity';
+import { Quiz } from '../courses/quiz.entity';
+import { QuizQuestion } from '../courses/quiz-question.entity';
 import { ImportJob } from './import-job.entity';
 import { ImportExportService } from './import-export.service';
 import { ImportExportController } from './import-export.controller';
@@ -13,7 +15,14 @@ import { ScormImportStrategy } from './strategies/scorm-import.strategy';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Course, CourseModule, Lesson, ImportJob]),
+    TypeOrmModule.forFeature([
+      Course,
+      CourseModule,
+      Lesson,
+      Quiz,
+      QuizQuestion,
+      ImportJob,
+    ]),
     MulterModule.register({ storage: undefined }), // use memory storage (buffer)
   ],
   providers: [

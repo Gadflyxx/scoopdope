@@ -58,6 +58,22 @@ export class ImportExportController {
       .send(JSON.stringify(data, null, 2));
   }
 
+  @Post('import')
+  @ApiOperation({ summary: 'Import a course from a portable JSON payload' })
+  @ApiResponse({ status: 201, description: 'Course imported' })
+  @ApiResponse({ status: 400, description: 'Invalid import payload (field-level errors)' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  @ApiBody({ schema: { type: 'object', additionalProperties: true } })
+  importCourse(
+    @Body() body: unknown,
+    @Request() req: { user: { id: string } }
+  ) {
+    return this.service.importCourse(body, req.user.id);
+  }
+
   @Post('import/json')
   @ApiOperation({ summary: 'Import a course from JSON file' })
   @ApiResponse({ status: 400, description: 'Bad request' })

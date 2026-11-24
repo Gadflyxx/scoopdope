@@ -17,6 +17,10 @@ import { Bundle } from './bundles/bundle.entity';
 import { BundleCourse } from './bundles/bundle-course.entity';
 import { Payment } from './payments/payment.entity';
 import { SupportTicketAttachment } from './support-tickets/support-ticket-attachment.entity';
+import { SupportTicket } from './support-tickets/support-ticket.entity';
+import { TicketReply } from './support-tickets/ticket-reply.entity';
+import { ReminderSend } from './reminders/reminder-send.entity';
+import { Streak } from './streaks/streak.entity';
 
 // ── Modules ─────────────────────────────────────────────────────────────────────
 
@@ -37,6 +41,7 @@ import { LiveSessionsModule } from './live-sessions/live-sessions.module';
 import { PaymentsModule } from './payments/payments.module';
 import { RewardsModule } from './rewards/rewards.module';
 import { SupportTicketsModule } from './support-tickets/support-tickets.module';
+import { RemindersModule } from './reminders/reminders.module';
 import { HealthModule } from './health/health.module';
 import * as redisStore from 'cache-manager-redis-store';
 import configuration from './config/configuration';
@@ -111,6 +116,10 @@ export class GracefulShutdownService implements OnApplicationShutdown {
           BundleCourse,
           Payment,
           SupportTicketAttachment,
+          SupportTicket,
+          TicketReply,
+          ReminderSend,
+          Streak,
         ],
         synchronize: configService.get('environment') !== 'production',
         logging: configService.get('environment') !== 'production',
@@ -154,6 +163,7 @@ export class GracefulShutdownService implements OnApplicationShutdown {
     PaymentsModule,
     RewardsModule,
     SupportTicketsModule,
+    RemindersModule,
     RateLimitModule,
     ApiVersionModule,
     MonitoringModule,

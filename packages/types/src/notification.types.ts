@@ -13,7 +13,10 @@ export type NotificationType =
   | 'payout.processed'
   | 'reminder.due'
   | 'forum.reply'
-  | 'moderation.action';
+  | 'moderation.action'
+  | 'support_ticket_update'
+  | 'reminder.inactivity'
+  | 'streak.reset';
 
 /**
  * A notification record.

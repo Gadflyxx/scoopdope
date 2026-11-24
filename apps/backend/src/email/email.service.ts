@@ -329,13 +329,60 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
     await this.enqueue(payload.userEmail, tpl.subject, tpl.html);
   }
 
+  @OnEvent('support.ticket.replied')
+  async onSupportTicketReplied(payload: { userId: string; userEmail: string; userName: string; ticketId: string; ticketSubject: string; replyBody: string; locale?: string }) {
+    const prefs = await this.getOrCreatePrefs(payload.userId);
+    if (prefs.unsubscribedAll || !prefs.supportTicket) return;
+
+    const tpl = emailTemplates.supportTicketReplied({
+      userName: payload.userName,
+      ticketSubject: payload.ticketSubject,
+      replyBody: payload.replyBody,
+      ticketUrl: `${this.config.get('frontend.url')}/account/support/${payload.ticketId}`,
+      unsubscribeUrl: this.unsubscribeUrl(prefs.unsubscribeToken),
+      locale: payload.locale ?? 'en',
+    });
+    await this.enqueue(payload.userEmail, tpl.subject, tpl.html);
+  }
+
+  @OnEvent('reminder.inactivity')
+  async onInactivityReminder(payload: { userId: string; userEmail: string; userName: string; courseId: string; courseTitle: string; progressPercent: number; locale?: string }) {
+    const prefs = await this.getOrCreatePrefs(payload.userId);
+    if (prefs.unsubscribedAll || !prefs.reminder) return;
+
+    const tpl = emailTemplates.inactivityReminder({
+      userName: payload.userName,
+      courseTitle: payload.courseTitle,
+      progressPercent: payload.progressPercent,
+      courseUrl: `${this.config.get('frontend.url')}/courses/${payload.courseId}`,
+      unsubscribeUrl: this.unsubscribeUrl(prefs.unsubscribeToken),
+      locale: payload.locale ?? 'en',
+    });
+    await this.enqueue(payload.userEmail, tpl.subject, tpl.html);
+  }
+
+  @OnEvent('streak.reset')
+  async onStreakReset(payload: { userId: string; userEmail: string; userName: string; previousStreak: number; locale?: string }) {
+    const prefs = await this.getOrCreatePrefs(payload.userId);
+    if (prefs.unsubscribedAll || !prefs.streak) return;
+
+    const tpl = emailTemplates.streakReset({
+      userName: payload.userName,
+      previousStreak: payload.previousStreak,
+      dashboardUrl: `${this.config.get('frontend.url')}/dashboard`,
+      unsubscribeUrl: this.unsubscribeUrl(prefs.unsubscribeToken),
+      locale: payload.locale ?? 'en',
+    });
+    await this.enqueue(payload.userEmail, tpl.subject, tpl.html);
+  }
+
   // --- Preferences management ---
 
   async getPreferences(userId: string) {
     return this.getOrCreatePrefs(userId);
   }
 
-  async updatePreferences(userId: string, updates: Partial<Pick<EmailPreference, 'enrollment' | 'completion' | 'credentialIssued' | 'marketing'>>) {
+  async updatePreferences(userId: string, updates: Partial<Pick<EmailPreference, 'enrollment' | 'completion' | 'credentialIssued' | 'marketing' | 'supportTicket' | 'reminder' | 'streak'>>) {
     const prefs = await this.getOrCreatePrefs(userId);
     Object.assign(prefs, updates);
     return this.prefRepo.save(prefs);

@@ -282,6 +282,46 @@ export const emailTemplates = {
     };
   },
 
+  supportTicketCreated: (data: { userName: string; ticketSubject: string; ticketId: string; ticketUrl: string; locale?: string }): EmailTemplate => {
+    const html = wrapEmail(
+      data.locale,
+      `
+        <h2>🎫 Support Ticket Received</h2>
+        <p>Hi ${escapeHtml(data.userName)},</p>
+        <p>We've received your support request and our team will get back to you soon.</p>
+        <ul>
+          <li><strong>Ticket:</strong> #${escapeHtml(data.ticketId)}</li>
+          <li><strong>Subject:</strong> ${escapeHtml(data.ticketSubject)}</li>
+        </ul>
+        <a href="${data.ticketUrl}" style="background:#4F46E5;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">View Ticket</a>`
+    );
+
+    return {
+      subject: `Support ticket received: "${data.ticketSubject}"`,
+      html,
+      text: htmlToPlainText(html),
+    };
+  },
+
+  supportTicketReply: (data: { userName: string; ticketSubject: string; ticketId: string; replyExcerpt: string; ticketUrl: string; locale?: string }): EmailTemplate => {
+    const html = wrapEmail(
+      data.locale,
+      `
+        <h2>💬 New reply to your support ticket</h2>
+        <p>Hi ${escapeHtml(data.userName)},</p>
+        <p>A support agent has replied to your ticket <strong>#${escapeHtml(data.ticketId)}</strong>:</p>
+        <p><strong>${escapeHtml(data.ticketSubject)}</strong></p>
+        <blockquote>${escapeHtml(data.replyExcerpt)}</blockquote>
+        <a href="${data.ticketUrl}" style="background:#4F46E5;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">View Reply</a>`
+    );
+
+    return {
+      subject: `New reply on your support ticket: "${data.ticketSubject}"`,
+      html,
+      text: htmlToPlainText(html),
+    };
+  },
+
   calendarInvite: (data: { userName: string; sessionTitle: string; date: string; duration: number; joinUrl?: string; sessionUrl: string; locale?: string }): EmailTemplate => {
     const html = wrapEmail(
       data.locale,

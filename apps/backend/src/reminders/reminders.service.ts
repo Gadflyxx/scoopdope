@@ -1,110 +1,149 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThanOrEqual } from 'typeorm';
-import { Reminder } from './reminder.entity';
-import { Enrollment } from '../enrollments/enrollment.entity';
-import { MailService } from '../mail/mail.service';
-import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
+
+@Entity('reminder_sends')
+@Index(['userId', 'courseId'])
+export class ReminderSend {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'uuid' })
+  userId: string;
+
+  @Column({ type: 'uuid' })
+  courseId: string;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  sentAt: Date;
+}
+
+export interface InactivityReminderPayload {
+  userId: string;
+  courseId: string;
+  courseName: string;
+  progressPercentage: number;
+  lastActivityAt: Date | null;
+}
+
+export interface EnrollmentRecord {
+  id: string;
+  userId: string;
+  courseId: string;
+  courseName: string;
+  completed: boolean;
+  progressPercentage: number;
+  lastActivityAt: Date | null;
+}
+
+export interface ReminderSendRecord {
+  userId: string;
+  courseId: string;
+  sentAt: Date;
+}
+
+export interface RemindersRepository {
+  findActiveEnrollments(): Promise<EnrollmentRecord[]>;
+  findRecentReminderSends(since: Date): Promise<ReminderSendRecord[]>;
+  recordReminderSend(userId: string, courseId: string, sentAt: Date): Promise<void>;
+}
+
+export const REMINDERS_REPOSITORY = 'REMINDERS_REPOSITORY';
+
+export const INACTIVITY_THRESHOLD_DAYS = 7;
+export const SUPPRESSION_WINDOW_DAYS = 7;
 
 @Injectable()
 export class RemindersService {
   private readonly logger = new Logger(RemindersService.name);
 
   constructor(
-    @InjectRepository(Reminder)
-    private remindersRepository: Repository<Reminder>,
-    @InjectRepository(Enrollment)
-    private enrollmentsRepository: Repository<Enrollment>,
-    private mailService: MailService,
-    private configService: ConfigService,
+    private readonly repository: RemindersRepository,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async sendInactiveReminders(): Promise<void> {
-    const inactivityDays = this.configService.get<number>('REMINDER_INACTIVITY_DAYS', 7);
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - inactivityDays);
-    const batchSize = 100;
-    let offset = 0;
-    let hasMore = true;
+  @Cron(CronExpression.EVERY_DAY_AT_9AM, { name: 'inactivity-reminders' })
+  async handleDailyInactivityReminders(): Promise<void> {
+    await this.sendInactivityReminders();
+  }
 
-    while (hasMore) {
-      const inactiveEnrollments = await this.enrollmentsRepository
-        .createQueryBuilder('e')
-        .leftJoinAndSelect('e.user', 'user')
-        .leftJoinAndSelect('e.course', 'course')
-        .where('e.completedAt IS NULL')
-        .andWhere('e.enrolledAt < :cutoffDate', { cutoffDate })
-        .take(batchSize)
-        .skip(offset)
-        .getMany();
+  async sendInactivityReminders(now: Date = new Date()): Promise<InactivityReminderPayload[]> {
+    const inactivityCutoff = new Date(
+      now.getTime() - INACTIVITY_THRESHOLD_DAYS * 24 * 60 * 60 * 1000,
+    );
+    const suppressionCutoff = new Date(
+      now.getTime() - SUPPRESSION_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    );
 
-      if (inactiveEnrollments.length === 0) {
-        hasMore = false;
-        break;
+    const [enrollments, recentSends] = await Promise.all([
+      this.repository.findActiveEnrollments(),
+      this.repository.findRecentReminderSends(suppressionCutoff),
+    ]);
+
+    const recentlyReminded = new Set(
+      recentSends.map((send) => this.reminderKey(send.userId, send.courseId)),
+    );
+
+    const sent: InactivityReminderPayload[] = [];
+
+    for (const enrollment of enrollments) {
+      if (enrollment.completed) {
+        continue;
       }
 
-      for (const enrollment of inactiveEnrollments) {
-        const reminder = await this.remindersRepository.findOne({
-          where: { userId: enrollment.userId, courseId: enrollment.courseId },
-        });
+      if (!this.isInactive(enrollment.lastActivityAt, inactivityCutoff)) {
+        continue;
+      }
 
-        if (!reminder || !reminder.isActive) continue;
+      const key = this.reminderKey(enrollment.userId, enrollment.courseId);
+      if (recentlyReminded.has(key)) {
+        continue;
+      }
 
-        const lastReminder = new Date(reminder.lastReminderSentAt);
-        const reminderFrequencyHours = this.configService.get<number>('REMINDER_FREQUENCY_HOURS', 168);
-        const nextReminderTime = new Date(lastReminder.getTime() + reminderFrequencyHours * 60 * 60 * 1000);
+      const payload: InactivityReminderPayload = {
+        userId: enrollment.userId,
+        courseId: enrollment.courseId,
+        courseName: enrollment.courseName,
+        progressPercentage: enrollment.progressPercentage,
+        lastActivityAt: enrollment.lastActivityAt,
+      };
 
-        if (new Date() < nextReminderTime) continue;
-
-        await this.mailService.sendReminderEmail(
-          enrollment.user.email,
-          enrollment.user.username,
-          enrollment.course.title,
+      try {
+        await this.repository.recordReminderSend(
+          enrollment.userId,
+          enrollment.courseId,
+          now,
         );
-
-        reminder.lastReminderSentAt = new Date();
-        await this.remindersRepository.save(reminder);
-        this.logger.log(`Reminder sent to ${enrollment.user.email} for course ${enrollment.course.title}`);
+        this.eventEmitter.emit('reminder.inactivity', payload);
+        recentlyReminded.add(key);
+        sent.push(payload);
+      } catch (error) {
+        this.logger.error(
+          `Failed to send inactivity reminder for user ${enrollment.userId} on course ${enrollment.courseId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
       }
-
-      offset += batchSize;
     }
+
+    this.logger.log(`Sent ${sent.length} inactivity reminder(s)`);
+    return sent;
   }
 
-  async createReminder(userId: string, courseId: string): Promise<Reminder> {
-    const reminder = this.remindersRepository.create({
-      userId,
-      courseId,
-      lastReminderSentAt: new Date(),
-      isActive: true,
-    });
-    return this.remindersRepository.save(reminder);
+  private isInactive(lastActivityAt: Date | null, cutoff: Date): boolean {
+    if (!lastActivityAt) {
+      return true;
+    }
+    return lastActivityAt.getTime() <= cutoff.getTime();
   }
 
-  async disableReminder(userId: string, courseId: string): Promise<void> {
-    await this.remindersRepository.update(
-      { userId, courseId },
-      { isActive: false },
-    );
-  }
-
-  async enableReminder(userId: string, courseId: string): Promise<void> {
-    await this.remindersRepository.update(
-      { userId, courseId },
-      { isActive: true },
-    );
-  }
-
-  async getReminderStats(): Promise<{ totalReminders: number; activeReminders: number; sentToday: number }> {
-    const totalReminders = await this.remindersRepository.count();
-    const activeReminders = await this.remindersRepository.count({ where: { isActive: true } });
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const sentToday = await this.remindersRepository.count({
-      where: { lastReminderSentAt: MoreThanOrEqual(today) },
-    });
-
-    return { totalReminders, activeReminders, sentToday };
+  private reminderKey(userId: string, courseId: string): string {
+    return `${userId}:${courseId}`;
   }
 }

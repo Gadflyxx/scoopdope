@@ -80,6 +80,19 @@ export interface MfaRequiredResponse {
 export type LoginResponse = AuthTokensResponse | MfaRequiredResponse;
 
 /**
+ * Response returned by GET /v1/users/me/streak.
+ * Describes the learner's daily learning streak.
+ */
+export interface StreakDto {
+  /** Number of consecutive days with learning activity */
+  current_streak: number;
+  /** Highest streak ever achieved by the learner */
+  longest_streak: number;
+  /** ISO date (YYYY-MM-DD) of the last learning activity, or null if none */
+  last_activity_date: string | null;
+}
+
+/**
  * JWT payload decoded from an access token.
  */
 export interface JwtPayload {
