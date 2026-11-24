@@ -25,6 +25,8 @@ pub enum DataKey {
     TopPerformers,
     Milestone(Address, Symbol, u32), // (student, course, milestone_pct) → MilestoneRecord
     StudentMilestones(Address, Symbol), // (student, course) → Vec<u32> (achieved milestones)
+    Revocation(Address, Symbol), // (student, course) → RevocationRecord
+    RevokedCredentials(Address), // persistent: Vec<Symbol> — revoked courses per student
 }
 
 // =============================================================================
@@ -71,6 +73,15 @@ pub struct MilestoneRecord {
     pub course_id: Symbol,
     pub milestone_pct: u32,
     pub achieved_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct RevocationRecord {
+    pub student: Address,
+    pub course_id: Symbol,
+    pub reason: Symbol,
+    pub revoked_at: u64,
 }
 
 // =============================================================================
@@ -240,6 +251,99 @@ impl AnalyticsContract {
             }
         }
         results
+    }
+
+    // -------------------------------------------------------------------------
+    // Revocation
+    // -------------------------------------------------------------------------
+
+    /// Revoke a credential for a student's course (admin only).
+    /// Panics if no progress/credential record exists for the (student, course) pair.
+    pub fn revoke(env: Env, admin: Address, student: Address, course_id: Symbol, reason: Symbol) {
+        admin.require_auth();
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        assert!(admin == stored_admin, "Only admin can revoke credentials");
+
+        // The credential must exist (i.e. progress was recorded for it).
+        let progress_key = DataKey::Progress(student.clone(), course_id.clone());
+        assert!(
+            env.storage().persistent().has(&progress_key),
+            "Credential does not exist"
+        );
+
+        let record = RevocationRecord {
+            student: student.clone(),
+            course_id: course_id.clone(),
+            reason: reason.clone(),
+            revoked_at: env.ledger().timestamp(),
+        };
+
+        let revocation_key = DataKey::Revocation(student.clone(), course_id.clone());
+        env.storage().persistent().set(&revocation_key, &record);
+        env.storage()
+            .persistent()
+            .extend_ttl(&revocation_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        // Update secondary index: student → [revoked course_ids]
+        let index_key = DataKey::RevokedCredentials(student.clone());
+        let mut revoked: Vec<Symbol> = env
+            .storage()
+            .persistent()
+            .get(&index_key)
+            .unwrap_or_else(|| vec![&env]);
+
+        if !revoked.contains(&course_id) {
+            revoked.push_back(course_id.clone());
+            env.storage().persistent().set(&index_key, &revoked);
+        }
+        env.storage()
+            .persistent()
+            .extend_ttl(&index_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events().publish(
+            (symbol_short!("analytics"), symbol_short!("revoked")),
+            (student, course_id, reason),
+        );
+    }
+
+    /// Returns true if the credential for (student, course) has been revoked.
+    pub fn is_revoked(env: Env, student: Address, course_id: Symbol) -> bool {
+        let key = DataKey::Revocation(student, course_id);
+        let revoked = env.storage().persistent().has(&key);
+        if revoked {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+        }
+        revoked
+    }
+
+    /// Get the revocation record for (student, course), if any.
+    pub fn get_revocation(
+        env: Env,
+        student: Address,
+        course_id: Symbol,
+    ) -> Option<RevocationRecord> {
+        let key = DataKey::Revocation(student, course_id);
+        let record = env.storage().persistent().get(&key)?;
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+        Some(record)
+    }
+
+    /// Get all revoked course ids for a student via the secondary index.
+    pub fn get_revoked_credentials(env: Env, student: Address) -> Vec<Symbol> {
+        let index_key = DataKey::RevokedCredentials(student);
+        match env.storage().persistent().get(&index_key) {
+            Some(revoked) => {
+                env.storage()
+                    .persistent()
+                    .extend_ttl(&index_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+                revoked
+            }
+            None => vec![&env],
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -1001,5 +1105,91 @@ mod tests {
         let (env, client, _, student) = setup();
         let other = Address::generate(&env);
         assert_eq!(client.get_average_progress(&other), 0);
+    }
+
+    // ============================================================================
+    // Revocation Tests
+    // ============================================================================
+
+    #[test]
+    fn test_admin_can_revoke_credential() {
+        let (_, client, admin, student) = setup();
+        let course = symbol_short!("RUST101");
+        client.record_progress(&student, &student, &course, &100);
+        assert!(!client.is_revoked(&student, &course));
+        client.revoke(&admin, &student, &course, &symbol_short!("fraud"));
+        assert!(client.is_revoked(&student, &course));
+    }
+
+    #[test]
+    fn test_get_revocation_returns_record() {
+        let (_, client, admin, student) = setup();
+        let course = symbol_short!("RUST101");
+        client.record_progress(&student, &student, &course, &100);
+        client.revoke(&admin, &student, &course, &symbol_short!("dispute"));
+        let rec = client.get_revocation(&student, &course).unwrap();
+        assert_eq!(rec.student, student);
+        assert_eq!(rec.course_id, course);
+        assert_eq!(rec.reason, symbol_short!("dispute"));
+    }
+
+    #[test]
+    fn test_get_revocation_none_when_not_revoked() {
+        let (_, client, _, student) = setup();
+        let course = symbol_short!("RUST101");
+        client.record_progress(&student, &student, &course, &100);
+        assert!(client.get_revocation(&student, &course).is_none());
+    }
+
+    #[test]
+    fn test_revoke_emits_event() {
+        let (env, client, admin, student) = setup();
+        let course = symbol_short!("RUST101");
+        client.record_progress(&student, &student, &course, &100);
+        client.revoke(&admin, &student, &course, &symbol_short!("fraud"));
+        assert!(has_event(&env, "analytics", "revoked"));
+    }
+
+    #[test]
+    fn test_revoke_nonexistent_credential_panics() {
+        let (env, client, admin, _) = setup();
+        let unknown = Address::generate(&env);
+        let course = symbol_short!("RUST101");
+        let result = client.try_revoke(&admin, &unknown, &course, &symbol_short!("fraud"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "Only admin can revoke credentials")]
+    fn test_non_admin_cannot_revoke() {
+        let (env, client, _, student) = setup();
+        let rando = Address::generate(&env);
+        let course = symbol_short!("RUST101");
+        client.record_progress(&student, &student, &course, &100);
+        client.revoke(&rando, &student, &course, &symbol_short!("fraud"));
+    }
+
+    #[test]
+    fn test_get_revoked_credentials_index() {
+        let (_, client, admin, student) = setup();
+        let c1 = symbol_short!("RUST101");
+        let c2 = symbol_short!("SOL201");
+        client.record_progress(&student, &student, &c1, &100);
+        client.record_progress(&student, &student, &c2, &100);
+        client.revoke(&admin, &student, &c1, &symbol_short!("fraud"));
+        client.revoke(&admin, &student, &c2, &symbol_short!("dispute"));
+        let revoked = client.get_revoked_credentials(&student);
+        assert_eq!(revoked.len(), 2);
+    }
+
+    #[test]
+    fn test_revoke_does_not_alter_progress() {
+        let (_, client, admin, student) = setup();
+        let course = symbol_short!("RUST101");
+        client.record_progress(&student, &student, &course, &100);
+        client.revoke(&admin, &student, &course, &symbol_short!("fraud"));
+        let rec = client.get_progress(&student, &course).unwrap();
+        assert_eq!(rec.progress_pct, 100);
+        assert!(rec.completed);
     }
 }
