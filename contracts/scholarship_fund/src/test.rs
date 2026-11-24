@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
 
 fn setup() -> (Env, ScholarshipFundContractClient<'static>, Address) {
     let env    = Env::default();
@@ -67,4 +67,73 @@ fn distribute_before_approve_panics() {
     client.donate(&donor, &2_000_000);
     let app_id = client.apply_for_scholarship(&student, &500_000);
     client.distribute_scholarship(&admin, &app_id); // not approved yet
+}
+
+#[test]
+fn disburse_full_transfers_to_each_recipient() {
+    let (env, client, admin) = setup();
+    let donor = Address::generate(&env);
+    client.donate(&donor, &10_000_000);
+
+    let s1 = Address::generate(&env);
+    let s2 = Address::generate(&env);
+    let a1 = client.apply_for_scholarship(&s1, &2_000_000);
+    let a2 = client.apply_for_scholarship(&s2, &3_000_000);
+    client.approve_application(&admin, &a1);
+    client.approve_application(&admin, &a2);
+
+    let mut recipients = Vec::new(&env);
+    recipients.push_back(a1);
+    recipients.push_back(a2);
+
+    let before = client.get_fund_balance();
+    client.disburse(&admin, &recipients);
+    let after = client.get_fund_balance();
+
+    assert_eq!(before - after, 5_000_000);
+    assert_eq!(client.get_application(&a1).unwrap().status, 2); // disbursed
+    assert_eq!(client.get_application(&a2).unwrap().status, 2);
+}
+
+#[test]
+fn disburse_partial_transfers_only_listed_recipients() {
+    let (env, client, admin) = setup();
+    let donor = Address::generate(&env);
+    client.donate(&donor, &10_000_000);
+
+    let s1 = Address::generate(&env);
+    let s2 = Address::generate(&env);
+    let a1 = client.apply_for_scholarship(&s1, &2_000_000);
+    let a2 = client.apply_for_scholarship(&s2, &3_000_000);
+    client.approve_application(&admin, &a1);
+    client.approve_application(&admin, &a2);
+
+    let mut recipients = Vec::new(&env);
+    recipients.push_back(a1);
+
+    let before = client.get_fund_balance();
+    client.disburse(&admin, &recipients);
+    let after = client.get_fund_balance();
+
+    assert_eq!(before - after, 2_000_000);
+    assert_eq!(client.get_application(&a1).unwrap().status, 2);
+    assert_eq!(client.get_application(&a2).unwrap().status, 1); // still approved
+}
+
+#[test]
+fn disburse_over_amount_returns_error() {
+    let (env, client, admin) = setup();
+    let donor = Address::generate(&env);
+    client.donate(&donor, &1_000_000);
+
+    let s1 = Address::generate(&env);
+    let a1 = client.apply_for_scholarship(&s1, &2_000_000);
+    client.approve_application(&admin, &a1);
+
+    let mut recipients = Vec::new(&env);
+    recipients.push_back(a1);
+
+    let result = client.try_disburse(&admin, &recipients);
+    assert!(result.is_err());
+    assert_eq!(client.get_fund_balance(), 1_000_000);
 }
