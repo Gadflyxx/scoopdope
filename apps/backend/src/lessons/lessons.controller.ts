@@ -3,16 +3,58 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
+  Delete,
   Param,
   Req,
   Res,
+  UseGuards,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
   HttpStatus,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { LessonsService } from './lessons.service';
 import { CreateLessonDto } from './dto/create-lesson.dto';
+import { CreateNoteDto } from './dto/create-note.dto';
+import { UpdateNoteDto } from './dto/update-note.dto';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+
+interface AuthenticatedRequest extends Request {
+  user?: { id?: string; userId?: string; sub?: string };
+}
+
+@Controller('courses')
+export class CourseNotesController {
+  constructor(private readonly lessonsService: LessonsService) {}
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/notes/export')
+  async exportNotes(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
+  ): Promise<void> {
+    const user = req.user;
+    const learnerId = user?.id ?? user?.userId ?? user?.sub;
+    if (!learnerId) {
+      throw new ForbiddenException('Unable to resolve current learner');
+    }
+
+    const enrolled = await this.lessonsService.isLearnerEnrolledInCourse(id, learnerId);
+    if (!enrolled) {
+      throw new ForbiddenException('Learner is not enrolled in this course');
+    }
+
+    const pdf = await this.lessonsService.exportCourseNotesPdf(id, learnerId);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="course-${id}-notes.pdf"`);
+    res.setHeader('Content-Length', pdf.length.toString());
+    res.status(HttpStatus.OK).end(pdf);
+  }
+}
 
 @Controller('lessons')
 export class LessonsController {
@@ -89,6 +131,70 @@ export class LessonsController {
       }
     });
     stream.pipe(res);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/notes')
+  async createNote(
+    @Param('id') id: string,
+    @Body() createNoteDto: CreateNoteDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const learnerId = this.resolveLearnerId(req);
+    await this.assertEnrolled(id, learnerId);
+    return this.lessonsService.createNote(id, learnerId, createNoteDto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/notes')
+  async listNotes(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const learnerId = this.resolveLearnerId(req);
+    await this.assertEnrolled(id, learnerId);
+    return this.lessonsService.listNotes(id, learnerId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/notes/:noteId')
+  async updateNote(
+    @Param('id') id: string,
+    @Param('noteId') noteId: string,
+    @Body() updateNoteDto: UpdateNoteDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const learnerId = this.resolveLearnerId(req);
+    await this.assertEnrolled(id, learnerId);
+    return this.lessonsService.updateNote(id, noteId, learnerId, updateNoteDto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id/notes/:noteId')
+  async deleteNote(
+    @Param('id') id: string,
+    @Param('noteId') noteId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const learnerId = this.resolveLearnerId(req);
+    await this.assertEnrolled(id, learnerId);
+    return this.lessonsService.deleteNote(id, noteId, learnerId);
+  }
+
+  private resolveLearnerId(req: AuthenticatedRequest): string {
+    const user = req.user;
+    const learnerId = user?.id ?? user?.userId ?? user?.sub;
+    if (!learnerId) {
+      throw new ForbiddenException('Unable to resolve current learner');
+    }
+    return learnerId;
+  }
+
+  private async assertEnrolled(lessonId: string, learnerId: string): Promise<void> {
+    const enrolled = await this.lessonsService.isLearnerEnrolled(lessonId, learnerId);
+    if (!enrolled) {
+      throw new ForbiddenException('Learner is not enrolled in this course');
+    }
   }
 
   private isValidUrl(value: string): boolean {
