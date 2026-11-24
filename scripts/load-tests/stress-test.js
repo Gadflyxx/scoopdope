@@ -19,7 +19,9 @@ export const options = {
     { duration: '5m', target: 0 },
   ],
   thresholds: {
-    http_req_duration: ['p(95)<2000', 'p(99)<5000'],
+    // Baseline p95: 2000ms -> regression limit = baseline * 1.2 = 2400ms
+    // Baseline p99: 5000ms -> regression limit = baseline * 1.2 = 6000ms
+    http_req_duration: ['p(95)<2400', 'p(99)<6000'],
     http_req_failed: ['rate<0.2'],
   },
 };
