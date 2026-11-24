@@ -107,6 +107,38 @@ export class InstructorAnalyticsController {
     );
   }
 
+  /**
+   * Get per-lesson video heatmap data for a course (instructor or admin).
+   * GET /v1/courses/:id/instructor-analytics/video-heatmap
+   */
+  @Get('courses/:id/instructor-analytics/video-heatmap')
+  @UseGuards(RolesGuard)
+  @Roles('instructor', 'admin')
+  @ApiOperation({ summary: 'Get per-lesson video heatmap for a course' })
+  @ApiParam({ name: 'id', description: 'Course ID' })
+  @ApiQuery({ name: 'from', required: false, description: 'Start date (ISO 8601)' })
+  @ApiQuery({ name: 'to', required: false, description: 'End date (ISO 8601)' })
+  @ApiResponse({ status: 200, description: 'Video heatmap returned' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — instructor or admin only' })
+  @ApiResponse({ status: 404, description: 'Course not found' })
+  getCourseVideoHeatmap(
+    @Request() req: any,
+    @Param('id') courseId: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const filter = this.parseFilter(from, to);
+    const instructorId = req.user.id ?? req.user.sub;
+    const isAdmin = req.user.role === 'admin';
+    return this.instructorAnalyticsService.getCourseVideoHeatmap(
+      courseId,
+      filter,
+      instructorId,
+      isAdmin,
+    );
+  }
+
   private parseFilter(from?: string, to?: string): DateRangeFilter {
     const filter: DateRangeFilter = {};
     if (from) {

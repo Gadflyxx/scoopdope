@@ -5,6 +5,7 @@ import { Progress } from '../progress/progress.entity';
 import { Lesson } from '../courses/lesson.entity';
 import { Course } from '../courses/course.entity';
 import { CourseInstructor } from '../courses/course-instructor.entity';
+import { VideoEvent } from './video-event.entity';
 import { InstructorAnalyticsService } from './instructor-analytics.service';
 import { InstructorAnalyticsController } from './instructor-analytics.controller';
 
@@ -16,6 +17,7 @@ import { InstructorAnalyticsController } from './instructor-analytics.controller
       Lesson,
       Course,
       CourseInstructor,
+      VideoEvent,
     ]),
   ],
   providers: [InstructorAnalyticsService],

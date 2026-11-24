@@ -11,6 +11,10 @@ export interface Enrollment {
   userId: string;
   courseId: string;
   enrolledAt: string;
+  /** Content version frozen at enrollment time (null if not yet set) */
+  enrolledVersionNumber: number | null;
+  /** Latest published content version of the course */
+  latestVersion: number;
 }
 
 /**

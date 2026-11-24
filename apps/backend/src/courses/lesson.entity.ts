@@ -54,6 +54,11 @@ export class Lesson {
   @Column({ default: 0 })
   durationMinutes: number;
 
+  // Why: lesson content is versioned alongside the course so that an
+  // enrollment's frozen version can select the correct lesson content.
+  @Column({ type: 'int', default: 1 })
+  version: number;
+
   @Column({ type: 'jsonb', nullable: true })
   learningObjectives?: string[];
 

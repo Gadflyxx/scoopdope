@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { CourseAnalytics } from './course-analytics.entity';
 import { BuybackEvent } from './buyback-event.entity';
+import { VideoEvent } from './video-event.entity';
 import { Enrollment } from '../enrollments/enrollment.entity';
 import { Progress } from '../progress/progress.entity';
 import { Review } from '../courses/review.entity';
@@ -18,6 +19,7 @@ import { AnalyticsEvents } from './analytics.events';
     TypeOrmModule.forFeature([
       CourseAnalytics,
       BuybackEvent,
+      VideoEvent,
       Enrollment,
       Progress,
       Review,

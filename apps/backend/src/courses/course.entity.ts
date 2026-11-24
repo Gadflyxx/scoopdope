@@ -113,6 +113,14 @@ export class Course {
   rejectionNotes: string | null;
 
   /**
+   * Current content version of the course.
+   * Incremented when an instructor publishes a new version; enrollments
+   * freeze the version they started on so in-progress learners are unaffected.
+   */
+  @Column({ type: 'int', default: 1 })
+  version: number;
+
+  /**
    * Maximum number of students that can be enrolled simultaneously.
    * Null means unlimited.
    */
