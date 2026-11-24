@@ -508,6 +508,52 @@ export const emailTemplates = {
     };
   },
 
+  batchEnrollmentComplete: (data: { userName: string; jobId: string; total: number; processed: number; failed: number; statusUrl: string; unsubscribeUrl: string; locale?: string }): EmailTemplate => {
+    const html = wrapEmail(
+      data.locale,
+      `
+        <h2>✅ Batch Enrollment Complete</h2>
+        <p>Hi ${data.userName},</p>
+        <p>Your batch enrollment job <code>${data.jobId}</code> has finished processing.</p>
+        <ul>
+          <li><strong>Total enrollments:</strong> ${data.total}</li>
+          <li><strong>Processed:</strong> ${data.processed}</li>
+          <li><strong>Failed:</strong> ${data.failed}</li>
+        </ul>
+        <a href="${data.statusUrl}" style="background:#4F46E5;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">View Results</a>
+        <p style="margin-top:40px;font-size:12px;color:#999">
+          <a href="${data.unsubscribeUrl}">Unsubscribe</a>
+        </p>`
+    );
+
+    return {
+      subject: `Batch enrollment job ${data.jobId} completed`,
+      html,
+      text: htmlToPlainText(html),
+    };
+  },
+
+  dataExportReady: (data: { userName: string; downloadUrl: string; expiresAt: string; unsubscribeUrl: string; locale?: string }): EmailTemplate => {
+    const html = wrapEmail(
+      data.locale,
+      `
+        <h2>📦 Your Data Export is Ready</h2>
+        <p>Hi ${data.userName},</p>
+        <p>Your personal data export is ready to download. The ZIP archive contains separate JSON files for each data category.</p>
+        <a href="${data.downloadUrl}" style="background:#4F46E5;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">Download Export</a>
+        <p>This download link expires on <strong>${data.expiresAt}</strong> (48 hours after it was generated).</p>
+        <p style="margin-top:40px;font-size:12px;color:#999">
+          <a href="${data.unsubscribeUrl}">Unsubscribe</a>
+        </p>`
+    );
+
+    return {
+      subject: 'Your data export is ready',
+      html,
+      text: htmlToPlainText(html),
+    };
+  },
+
   calendarInvite: (data: { userName: string; sessionTitle: string; date: string; duration: number; joinUrl?: string; sessionUrl: string; locale?: string }): EmailTemplate => {
     const html = wrapEmail(
       data.locale,

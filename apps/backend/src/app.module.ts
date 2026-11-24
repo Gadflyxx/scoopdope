@@ -49,6 +49,10 @@ import { validationSchema } from './config/validation.schema';
 
 import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { UserRateLimitGuard } from './rate-limit/user-rate-limit.guard';
+import { AccessControlModule } from './access-control/access-control.module';
+import { BatchModule } from './batch/batch.module';
+import { ImportExportModule } from './import-export/import-export.module';
+import { CollaborationModule } from './collaboration/collaboration.module';
 import { AuthLoggerMiddleware } from './auth/auth-logger.middleware';
 import { CsrfMiddleware } from './common/middleware/csrf.middleware';
 import { EtagMiddleware } from './common/middleware/etag.middleware';
@@ -149,6 +153,9 @@ export class GracefulShutdownService implements OnApplicationShutdown {
     CohortsModule,
     CdnModule,
     AccessControlModule,
+    BatchModule,
+    ImportExportModule,
+    CollaborationModule,
     RateLimitModule,
     AuditModule,
     DownloadsModule,

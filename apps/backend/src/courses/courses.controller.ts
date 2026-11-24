@@ -30,6 +30,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { AccessControlGuard } from '../access-control/access-control.guard';
 import { CourseQueryDto } from './dto/course-query.dto';
 import { ScheduleCourseDto } from './dto/schedule-course.dto';
 import { AuditService } from '../audit/audit.service';
@@ -211,7 +212,7 @@ export class CoursesController {
   }
 
   @Get(':id')
-  @UseGuards(OptionalJwtAuthGuard)
+  @UseGuards(OptionalJwtAuthGuard, AccessControlGuard)
   @ApiOperation({ summary: 'Get a course by ID' })
   @ApiResponse({ status: 400, description: 'Bad request' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
@@ -237,6 +238,11 @@ export class CoursesController {
         timestamp: '2024-01-01T00:00:00.000Z',
       },
     },
+  })
+  @ApiResponse({
+    status: 403,
+    description:
+      'Forbidden - course visibility (enrolled_only/private) does not permit the requester',
   })
   @ApiResponse({
     status: 404,

@@ -15,6 +15,7 @@ import { Course, CourseStatus, DifficultyLevel } from './course.entity';
 import { CourseQueryDto } from './dto/course-query.dto';
 import { SearchService } from '../search/search.service';
 import { MetricsService } from '../metrics/metrics.service';
+import { AccessControlService } from '../access-control/access-control.service';
 
 /** Event emitted when an instructor submits a course for moderation. */
 export const COURSE_SUBMITTED_FOR_REVIEW = 'course.submitted_for_review';
@@ -75,6 +76,54 @@ export class CoursesService {
   ) {}
 
   /**
+   * Resolve a course and enforce its visibility rules for the given viewer.
+   *
+   * This is the service-layer backstop for access control: any code path that
+   * returns course content (detail, lessons, resources) must go through here so
+   * that direct service calls cannot bypass the HTTP guard.
+   *
+   * - Missing or soft-deleted courses raise NotFoundException.
+   * - Viewers who fail the visibility check raise ForbiddenException.
+   */
+  async findAccessibleCourse(
+    id: string,
+    userId?: string | null
+  ): Promise<Course> {
+    const course = await this.repo.findOne({ where: { id } });
+    if (!course || course.isDeleted) {
+      throw new NotFoundException(`Course with id ${id} not found`);
+    }
+
+    const allowed = await this.accessControlService.canAccessCourse(course, userId ?? null);
+    if (!allowed) {
+      throw new ForbiddenException('You do not have access to this course');
+    }
+
+    return course;
+  }
+
+  /**
+   * Get a course's detail, enforcing visibility rules for the viewer.
+   */
+  async findOne(id: string, userId?: string | null): Promise<Course> {
+    return this.findAccessibleCourse(id, userId);
+  }
+
+  /**
+   * Get a course's lessons, enforcing visibility rules for the viewer.
+   */
+  async findLessons(id: string, userId?: string | null): Promise<Course> {
+    return this.findAccessibleCourse(id, userId);
+  }
+
+  /**
+   * Get a course's resources, enforcing visibility rules for the viewer.
+   */
+  async findResources(id: string, userId?: string | null): Promise<Course> {
+    return this.findAccessibleCourse(id, userId);
+  }
+
+  /**
    * Get average rating for a course from reviews
    */
   async getAverageRating(courseId: string): Promise<number | null> {
@@ -115,7 +164,10 @@ export class CoursesService {
     const qb = this.repo
       .createQueryBuilder('course')
       .where('course.status = :publishedStatus', { publishedStatus: CourseStatus.PUBLISHED })
-      .andWhere('course.isDeleted = :isDeleted', { isDeleted: false });
+      .andWhere('course.isDeleted = :isDeleted', { isDeleted: false })
+      .andWhere('(course.visibility IS NULL OR course.visibility != :privateVisibility)', {
+        privateVisibility: CourseVisibility.PRIVATE,
+      });
 
     if (search) {
       // Case-insensitive match on title/description (ILIKE handles casing).
@@ -410,6 +462,9 @@ export class CoursesService {
       .createQueryBuilder('course')
       .where('course.status = :publishedStatus', { publishedStatus: CourseStatus.PUBLISHED })
       .andWhere('course.isDeleted = :isDeleted', { isDeleted: false })
+      .andWhere('(course.visibility IS NULL OR course.visibility != :privateVisibility)', {
+        privateVisibility: CourseVisibility.PRIVATE,
+      })
       .andWhere('course.difficultyLevel IN (:...allowedLevels)', { allowedLevels })
       .orderBy('course.difficultyLevel', 'ASC')
       .addOrderBy('course.createdAt', 'DESC')

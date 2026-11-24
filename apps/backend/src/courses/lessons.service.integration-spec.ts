@@ -9,6 +9,10 @@ import { Course } from './course.entity';
 import { SearchService } from '../search/search.service';
 import { TranscribeService } from './transcribe.service';
 import { setupTestDatabase, teardownTestDatabase } from '../test/integration-test.setup';
+import {
+  AccessControlService,
+  CourseVisibility,
+} from '../access-control/access-control.service';
 
 describe('LessonsService — Reorder (Integration)', () => {
   let service: LessonsService;
@@ -17,6 +21,7 @@ describe('LessonsService — Reorder (Integration)', () => {
   let lessonRepo: any;
   let moduleRepo: any;
   let courseRepo: any;
+  let accessControlService: AccessControlService;
 
   let testCourse: Course;
   let testModule: CourseModule;
@@ -46,6 +51,7 @@ describe('LessonsService — Reorder (Integration)', () => {
             getTranscriptionResult: jest.fn(),
           },
         },
+        AccessControlService,
       ],
     })
       .overrideProvider('DataSource')
@@ -53,6 +59,7 @@ describe('LessonsService — Reorder (Integration)', () => {
       .compile();
 
     service = module.get<LessonsService>(LessonsService);
+    accessControlService = module.get<AccessControlService>(AccessControlService);
     lessonRepo = dataSource.getRepository(Lesson);
     moduleRepo = dataSource.getRepository(CourseModule);
     courseRepo = dataSource.getRepository(Course);
@@ -294,6 +301,218 @@ describe('LessonsService — Reorder (Integration)', () => {
       for (let i = 0; i < result.length; i++) {
         expect(result[i].order).toBe(i);
       }
+    });
+  });
+
+  describe('course visibility enforcement', () => {
+    const visibilityLevels: CourseVisibility[] = [
+      'public',
+      'unlisted',
+      'enrolled_only',
+      'private',
+    ];
+
+    const enrolledLearner = { id: 'learner-enrolled', isEnrolled: true };
+    const nonEnrolledLearner = { id: 'learner-not-enrolled', isEnrolled: false };
+
+    async function createCourseWithVisibility(
+      visibility: CourseVisibility,
+    ): Promise<{ course: Course; courseModule: CourseModule; lesson: Lesson }> {
+      const course = await courseRepo.save(
+        courseRepo.create({
+          title: `Course ${visibility}`,
+          description: `Description ${visibility}`,
+          level: 'beginner',
+          isPublished: true,
+          visibility,
+        }),
+      );
+
+      const courseModule = await moduleRepo.save(
+        moduleRepo.create({
+          courseId: course.id,
+          title: `Module ${visibility}`,
+          order: 1,
+        }),
+      );
+
+      const lesson = await lessonRepo.save(
+        lessonRepo.create({
+          moduleId: courseModule.id,
+          title: `Lesson ${visibility}`,
+          content: `Content ${visibility}`,
+          order: 0,
+        }),
+      );
+
+      return { course, courseModule, lesson };
+    }
+
+    describe.each(visibilityLevels)('visibility: %s', (visibility) => {
+      let course: Course;
+      let courseModule: CourseModule;
+      let lesson: Lesson;
+
+      beforeEach(async () => {
+        ({ course, courseModule, lesson } = await createCourseWithVisibility(
+          visibility,
+        ));
+      });
+
+      describe('course detail endpoint', () => {
+        it('handles unauthenticated access according to visibility', async () => {
+          const canView = await accessControlService.canViewCourse(
+            course.id,
+            undefined,
+          );
+
+          if (visibility === 'public' || visibility === 'unlisted') {
+            expect(canView).toBe(true);
+          } else {
+            expect(canView).toBe(false);
+          }
+        });
+
+        it('handles non-enrolled authenticated access according to visibility', async () => {
+          const canView = await accessControlService.canViewCourse(
+            course.id,
+            nonEnrolledLearner,
+          );
+
+          if (visibility === 'public' || visibility === 'unlisted') {
+            expect(canView).toBe(true);
+          } else {
+            expect(canView).toBe(false);
+          }
+        });
+
+        it('allows enrolled learner access', async () => {
+          const canView = await accessControlService.canViewCourse(
+            course.id,
+            enrolledLearner,
+          );
+
+          expect(canView).toBe(true);
+        });
+      });
+
+      describe('lesson endpoint', () => {
+        it('handles unauthenticated access according to visibility', async () => {
+          const canView = await accessControlService.canViewLesson(
+            lesson.id,
+            undefined,
+          );
+
+          if (visibility === 'public' || visibility === 'unlisted') {
+            expect(canView).toBe(true);
+          } else {
+            expect(canView).toBe(false);
+          }
+        });
+
+        it('handles non-enrolled authenticated access according to visibility', async () => {
+          const canView = await accessControlService.canViewLesson(
+            lesson.id,
+            nonEnrolledLearner,
+          );
+
+          if (visibility === 'public' || visibility === 'unlisted') {
+            expect(canView).toBe(true);
+          } else {
+            expect(canView).toBe(false);
+          }
+        });
+
+        it('allows enrolled learner access', async () => {
+          const canView = await accessControlService.canViewLesson(
+            lesson.id,
+            enrolledLearner,
+          );
+
+          expect(canView).toBe(true);
+        });
+      });
+
+      describe('resource endpoint', () => {
+        it('handles unauthenticated access according to visibility', async () => {
+          const canView = await accessControlService.canViewResource(
+            course.id,
+            undefined,
+          );
+
+          if (visibility === 'public' || visibility === 'unlisted') {
+            expect(canView).toBe(true);
+          } else {
+            expect(canView).toBe(false);
+          }
+        });
+
+        it('handles non-enrolled authenticated access according to visibility', async () => {
+          const canView = await accessControlService.canViewResource(
+            course.id,
+            nonEnrolledLearner,
+          );
+
+          if (visibility === 'public' || visibility === 'unlisted') {
+            expect(canView).toBe(true);
+          } else {
+            expect(canView).toBe(false);
+          }
+        });
+
+        it('allows enrolled learner access', async () => {
+          const canView = await accessControlService.canViewResource(
+            course.id,
+            enrolledLearner,
+          );
+
+          expect(canView).toBe(true);
+        });
+      });
+    });
+
+    it('excludes private courses from search results', async () => {
+      const publicCourse = await createCourseWithVisibility('public');
+      const unlistedCourse = await createCourseWithVisibility('unlisted');
+      const enrolledOnlyCourse = await createCourseWithVisibility('enrolled_only');
+      const privateCourse = await createCourseWithVisibility('private');
+
+      const visibleCourseIds = await accessControlService.filterVisibleCourses(
+        [
+          publicCourse.course.id,
+          unlistedCourse.course.id,
+          enrolledOnlyCourse.course.id,
+          privateCourse.course.id,
+        ],
+        undefined,
+      );
+
+      expect(visibleCourseIds).toContain(publicCourse.course.id);
+      expect(visibleCourseIds).toContain(unlistedCourse.course.id);
+      expect(visibleCourseIds).not.toContain(enrolledOnlyCourse.course.id);
+      expect(visibleCourseIds).not.toContain(privateCourse.course.id);
+    });
+
+    it('excludes private courses from search results for non-enrolled users', async () => {
+      const privateCourse = await createCourseWithVisibility('private');
+
+      const visibleCourseIds = await accessControlService.filterVisibleCourses(
+        [privateCourse.course.id],
+        nonEnrolledLearner,
+      );
+
+      expect(visibleCourseIds).not.toContain(privateCourse.course.id);
+    });
+
+    it('includes enrolled_only courses in search results for enrolled learners', async () => {
+      const enrolledOnlyCourse = await createCourseWithVisibility('enrolled_only');
+
+      const visibleCourseIds = await accessControlService.filterVisibleCourses(
+        [enrolledOnlyCourse.course.id],
+        enrolledLearner,
+      );
+
+      expect(visibleCourseIds).toContain(enrolledOnlyCourse.course.id);
     });
   });
 });

@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
   ForbiddenException,
   RequestRangeNotSatisfiableException,
@@ -107,6 +108,47 @@ export class LessonsService {
 
   async findOne(id: string): Promise<Lesson> {
     return this.lessonsRepository.findOne({ where: { id } });
+  }
+
+  /**
+   * Load a lesson and enforce course visibility rules for the caller.
+   *
+   * Throws `NotFoundException` when the lesson does not exist (or its
+   * parent course is not visible to the caller) and `ForbiddenException`
+   * when the lesson exists but the caller may not access its content.
+   */
+  async findOneForUser(id: string, userId?: string): Promise<Lesson> {
+    const lesson = await this.lessonsRepository.findOne({ where: { id } });
+    if (!lesson) {
+      throw new NotFoundException('Lesson not found');
+    }
+    await this.assertCanAccessLesson(lesson, userId);
+    return lesson;
+  }
+
+  /**
+   * Enforce course visibility rules for a lesson's parent course.
+   * Private/unlisted courses are hidden (404) from callers who cannot
+   * see them; enrolled-only courses reject non-enrolled callers (403).
+   */
+  async assertCanAccessLesson(lesson: Lesson, userId?: string): Promise<void> {
+    const courseId = (lesson as Lesson & { courseId?: string }).courseId;
+    if (!courseId) {
+      return;
+    }
+    const result = await this.accessControlService.canAccessCourse(
+      courseId,
+      userId,
+    );
+    if (result.allowed) {
+      return;
+    }
+    if (result.reason === 'not_found') {
+      throw new NotFoundException('Lesson not found');
+    }
+    throw new ForbiddenException(
+      'You do not have access to this lesson',
+    );
   }
 
   async remove(id: string): Promise<void> {
@@ -314,7 +356,19 @@ export class LessonsService {
     filePath: string,
     rangeHeader?: string,
     contentType = 'video/mp4',
+    lessonId?: string,
+    userId?: string,
   ): Promise<VideoStreamResult> {
+    if (lessonId !== undefined) {
+      const lesson = await this.lessonsRepository.findOne({
+        where: { id: lessonId },
+      });
+      if (!lesson) {
+        throw new NotFoundException('Lesson not found');
+      }
+      await this.assertCanAccessLesson(lesson, userId);
+    }
+
     let stats: Stats;
     try {
       stats = await fsPromises.stat(filePath);

@@ -30,6 +30,13 @@ export enum CourseDifficulty {
   ADVANCED = 'advanced',
 }
 
+export enum CourseVisibility {
+  PUBLIC = 'public',
+  UNLISTED = 'unlisted',
+  ENROLLED_ONLY = 'enrolled_only',
+  PRIVATE = 'private',
+}
+
 @Entity('courses')
 export class Course {
   @PrimaryGeneratedColumn('uuid')
@@ -57,6 +64,16 @@ export class Course {
 
   @Column({ type: 'enum', enum: CourseStatus, default: CourseStatus.DRAFT })
   status: CourseStatus;
+
+  /**
+   * Visibility level controlling who may discover and access the course.
+   * - public: listed in search and accessible to everyone
+   * - unlisted: accessible via direct link but hidden from search
+   * - enrolled_only: accessible only to enrolled learners
+   * - private: accessible only to the instructor and admins
+   */
+  @Column({ type: 'enum', enum: CourseVisibility, default: CourseVisibility.PUBLIC })
+  visibility: CourseVisibility;
 
   /** @deprecated use status instead */
   @Column({ default: false })
