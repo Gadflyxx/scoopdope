@@ -17,6 +17,7 @@ import { CourseVersioningService } from '../courses/course-versioning.service';
 import { PrerequisitesService } from '../learning-paths/prerequisites.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { EnrollmentConfirmedEvent } from './events/enrollment-confirmed.event';
+import { ReferralsService } from '../referrals/referrals.service';
 
 /** TTL for cached enrollment counts, in milliseconds. */
 const ENROLLMENT_COUNT_TTL_MS = 60_000;
@@ -45,6 +46,7 @@ export class EnrollmentsService {
     private readonly prereqService: PrerequisitesService,
     private readonly eventEmitter: EventEmitter2,
     private readonly metrics: MetricsService,
+    private readonly referralsService: ReferralsService,
   ) {}
 
   /**
@@ -163,7 +165,27 @@ export class EnrollmentsService {
 
     this.metrics.incrementEnrollment(courseId, 'all');
 
+    // Award the referrer (50 BST) once the referred learner completes their
+    // first purchase. Idempotent: the referral is only rewarded a single time.
+    await this.rewardReferralOnFirstPurchase(userId);
+
     return enrollment;
+  }
+
+  /**
+   * Reward the referrer of `userId` if this is the referred learner's first
+   * purchase. Failures are logged but never block the enrollment itself.
+   */
+  private async rewardReferralOnFirstPurchase(userId: string): Promise<void> {
+    try {
+      await this.referralsService.rewardReferrerOnFirstPurchase(userId);
+    } catch (error) {
+      this.logger.error(
+        `Failed to process referral reward for user ${userId}: ${
+          (error as Error)?.message ?? error
+        }`,
+      );
+    }
   }
 
   async findByCourse(courseId: string): Promise<Enrollment[]> {

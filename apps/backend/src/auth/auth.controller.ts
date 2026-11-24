@@ -37,6 +37,15 @@ class RegisterDto {
       'password must contain at least one uppercase letter, one lowercase letter, and one number',
   })
   password: string;
+
+  @ApiProperty({
+    example: 'REF-ABC123',
+    description: 'Optional referral code from the user who invited this learner',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  referralCode?: string;
 }
 
 class LoginDto {
@@ -227,7 +236,7 @@ export class AuthController {
   @ApiResponse({ status: 429, description: 'Too many requests — rate limit exceeded' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   register(@Body() dto: RegisterDto, @Query('ref') ref?: string) {
-    return this.authService.register(dto.email, dto.password, ref);
+    return this.authService.register(dto.email, dto.password, dto.referralCode ?? ref);
   }
 
   @Post('login')

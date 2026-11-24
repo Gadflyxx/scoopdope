@@ -14,6 +14,10 @@ const envSchema = z.object({
 
   // Exchange rate API key used for instructor payout currency conversion
   EXCHANGE_RATE_API_KEY: z.string().default(''),
+
+  // Comma-separated list of IP addresses allowed to access admin routes.
+  // Empty string means no IPs are allowlisted.
+  ADMIN_ALLOWED_IPS: z.string().default(''),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -32,3 +36,32 @@ function loadEnv(): Env {
 }
 
 export const env = loadEnv();
+
+/**
+ * Parse a comma-separated IP allowlist string into a normalized list of IPs.
+ * Trims whitespace, drops empty entries, and removes duplicates.
+ */
+export function parseIpAllowlist(raw: string): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const entry of raw.split(',')) {
+    const ip = entry.trim();
+    if (ip.length === 0) {
+      continue;
+    }
+    if (seen.has(ip)) {
+      continue;
+    }
+    seen.add(ip);
+    result.push(ip);
+  }
+
+  return result;
+}
+
+/**
+ * The parsed list of IP addresses allowed to access admin routes,
+ * derived from the ADMIN_ALLOWED_IPS environment variable.
+ */
+export const adminAllowedIps: string[] = parseIpAllowlist(env.ADMIN_ALLOWED_IPS);

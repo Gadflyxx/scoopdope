@@ -113,4 +113,16 @@ export const validationSchema = Joi.object({
 
   // Survey
   SURVEY_PSEUDONYMIZATION_SECRET: Joi.string().min(32).required(),
+
+  // Admin IP allowlist (comma-separated list of IPs; empty disables the allowlist)
+  ADMIN_ALLOWED_IPS: Joi.string().allow('').default(''),
+
+  // Webhook delivery retries
+  WEBHOOK_RETRY_BACKOFF_MS: Joi.string()
+    .pattern(/^\s*\d+\s*(,\s*\d+\s*)*$/)
+    .default('60000,300000,900000,3600000,14400000'),
+  WEBHOOK_MAX_ATTEMPTS: Joi.number().integer().min(1).default(5),
+
+  // Feature flags
+  FEATURE_FLAG_SEED_ENABLED: Joi.boolean().default(true),
 });

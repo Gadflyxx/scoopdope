@@ -15,6 +15,7 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
+import { IpAllowlistGuard } from '../auth/ip-allowlist.guard';
 import { Roles } from '../auth/roles.decorator';
 import { CoursesService } from './courses.service';
 import { AuditService } from '../audit/audit.service';
@@ -24,7 +25,7 @@ import { EnrollmentsService } from '../enrollments/enrollments.service';
 @ApiTags('admin-courses')
 @ApiBearerAuth()
 @Controller('admin/courses')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, IpAllowlistGuard)
 export class AdminCoursesController {
   constructor(
     private readonly coursesService: CoursesService,

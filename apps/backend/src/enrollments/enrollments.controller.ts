@@ -53,10 +53,16 @@ export class EnrollmentsController {
     @Request() req: { user: { id: string; role: string } },
     @Query('override') override?: string,
     @Body('adminOverride') adminOverride?: boolean,
+    @Body('referralCode') referralCode?: string,
   ) {
     const isAdmin = req.user.role === 'admin';
     const wantsOverride = override === 'true' || !!adminOverride;
-    return this.enrollmentsService.enroll(req.user.id, courseId, isAdmin && wantsOverride);
+    return this.enrollmentsService.enroll(
+      req.user.id,
+      courseId,
+      isAdmin && wantsOverride,
+      referralCode,
+    );
   }
 
   @Post('enrollments')
@@ -84,10 +90,16 @@ export class EnrollmentsController {
     @Request() req: { user: { id: string; role: string } },
     @Query('override') override?: string,
     @Body('adminOverride') adminOverride?: boolean,
+    @Body('referralCode') referralCode?: string,
   ) {
     const isAdmin = req.user.role === 'admin';
     const wantsOverride = override === 'true' || !!adminOverride;
-    return this.enrollmentsService.enroll(req.user.id, courseId, isAdmin && wantsOverride);
+    return this.enrollmentsService.enroll(
+      req.user.id,
+      courseId,
+      isAdmin && wantsOverride,
+      referralCode,
+    );
   }
 
   @Delete('courses/:id/enroll')

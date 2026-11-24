@@ -21,8 +21,32 @@ export interface UserProfile {
   isVerified: boolean;
   mfaEnabled: boolean;
   referralCode: string | null;
+  /** Number of users who signed up with this user's referral code */
+  referralCount: number;
+  /** Total BST tokens earned from referrals */
+  referralEarnings: number;
   createdAt: string;
   themePreference: 'light' | 'dark' | 'system';
+}
+
+/**
+ * Referral statistics for a user's profile.
+ */
+export interface ReferralStats {
+  /** The user's unique referral code */
+  code: string;
+  /** Number of users who signed up with this code */
+  count: number;
+  /** Total BST tokens earned from referrals */
+  earnings: number;
+}
+
+/**
+ * DTO for validating a referral code.
+ */
+export interface ReferralDto {
+  /** Referral code to validate */
+  code: string;
 }
 
 /**
