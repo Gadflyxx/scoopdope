@@ -90,3 +90,16 @@ export interface JwtPayload {
   iat?: number;
   exp?: number;
 }
+
+/**
+ * Instructor entry in categorized search results.
+ * Only public profile fields are included.
+ */
+export interface InstructorSearchResult {
+  id: string;
+  username: string | null;
+  bio: string | null;
+  avatar: string | null;
+  /** Relevance score (ts_rank) — higher is more relevant */
+  relevance: number;
+}

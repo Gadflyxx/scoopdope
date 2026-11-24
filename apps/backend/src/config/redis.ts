@@ -129,3 +129,99 @@ export const cacheTtl = {
   course: 300,
   userProfile: 300,
 };
+
+/** Status values reported by a health sub-check. */
+export type HealthCheckStatus = 'up' | 'down' | 'degraded' | 'skipped';
+
+/** Result of a single dependency health sub-check. */
+export interface HealthCheckResult {
+  status: HealthCheckStatus;
+  /** Whether this dependency is required for the service to be considered healthy. */
+  critical: boolean;
+  /** Round-trip latency of the check in milliseconds, when applicable. */
+  latencyMs?: number;
+  /** Human-readable detail, typically an error message when not up. */
+  message?: string;
+}
+
+const DEFAULT_REDIS_PING_TIMEOUT_MS = 1000;
+
+/**
+ * Wrap a promise with a timeout so a hung dependency cannot block the health
+ * endpoint indefinitely.
+ */
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+/**
+ * Health indicator for Redis. Pings the shared client with a timeout.
+ *
+ * Redis is treated as a non-critical dependency: when it is unavailable the
+ * overall service status becomes `degraded` rather than `down`, because the
+ * application transparently falls back to the database.
+ */
+export async function checkRedisHealth(
+  timeoutMs: number = DEFAULT_REDIS_PING_TIMEOUT_MS,
+): Promise<HealthCheckResult> {
+  const redis = getRedis();
+
+  if (!redis) {
+    return {
+      status: 'skipped',
+      critical: false,
+      message: 'Redis is not configured',
+    };
+  }
+
+  const startedAt = Date.now();
+
+  try {
+    const pong = await withTimeout(redis.ping(), timeoutMs, 'redis ping');
+    const latencyMs = Date.now() - startedAt;
+
+    if (pong !== 'PONG') {
+      return {
+        status: 'degraded',
+        critical: false,
+        latencyMs,
+        message: `Unexpected ping response: ${String(pong)}`,
+      };
+    }
+
+    return {
+      status: 'up',
+      critical: false,
+      latencyMs,
+    };
+  } catch (err) {
+    const latencyMs = Date.now() - startedAt;
+    const message = err instanceof Error ? err.message : String(err);
+
+    return {
+      status: 'down',
+      critical: false,
+      latencyMs,
+      message,
+    };
+  }
+}

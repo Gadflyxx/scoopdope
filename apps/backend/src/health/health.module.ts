@@ -5,8 +5,10 @@ import { DatabaseModule } from '../database/database.module';
 import { HealthController } from './health.controller';
 import { HealthService } from './health.service';
 import {
+  DatabaseHealthIndicator,
   DiskHealthIndicator,
   ElasticsearchHealthIndicator,
+  RedisHealthIndicator,
   StellarHealthIndicator,
 } from './indicators';
 
@@ -22,8 +24,10 @@ import {
   controllers: [HealthController],
   providers: [
     HealthService,
+    DatabaseHealthIndicator,
     DiskHealthIndicator,
     ElasticsearchHealthIndicator,
+    RedisHealthIndicator,
     StellarHealthIndicator,
   ],
   exports: [HealthService],

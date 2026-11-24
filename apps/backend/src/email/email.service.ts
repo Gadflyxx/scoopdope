@@ -126,10 +126,13 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
     userEmail: string;
     userName: string;
     locale?: string;
+    reason?: string | null;
     adminNote?: string | null;
   }): Promise<void> {
     const template = emailTemplates.applicationRejected({
-      ...data,
+      userEmail: data.userEmail,
+      userName: data.userName,
+      reason: data.reason ?? data.adminNote ?? null,
       locale: data.locale ?? 'en',
     });
     await this.enqueue(data.userEmail, template.subject, template.html);

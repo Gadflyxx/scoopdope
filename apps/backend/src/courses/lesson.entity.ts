@@ -7,6 +7,7 @@ import {
   ManyToOne,
   OneToMany,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { CourseModule } from './course-module.entity';
 import { Assignment } from '../assignments/assignment.entity';
@@ -55,6 +56,19 @@ export class Lesson {
 
   @Column({ type: 'jsonb', nullable: true })
   learningObjectives?: string[];
+
+  // Why: generated tsvector over title and content enables full-text search
+  // and ts_rank scoring so keywords appearing only in the lesson body are
+  // discoverable. The GIN index keeps those queries fast.
+  @Index('IDX_lessons_search_vector', { synchronize: false })
+  @Column({
+    type: 'tsvector',
+    nullable: true,
+    select: false,
+    asExpression: `setweight(to_tsvector('english', coalesce(title, '')), 'A') || setweight(to_tsvector('english', coalesce(content, '')), 'B')`,
+    generatedType: 'STORED',
+  })
+  searchVector: string;
 
   // Why: deleting a lesson removes its assignments to prevent orphan records.
   @OneToMany(() => Assignment, (assignment) => assignment.lesson, {

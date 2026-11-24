@@ -21,7 +21,17 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('User role is missing or invalid');
     }
 
-    if (!requiredRoles.includes(user.role)) {
+    // Normalize role comparison to be case-consistent so that a user whose
+    // role is stored as e.g. "instructor" is still authorized against a
+    // required role of "INSTRUCTOR" (and vice versa). This ensures the
+    // INSTRUCTOR role assigned on application approval grants access to
+    // course creation endpoints regardless of casing.
+    const userRole = String(user.role).trim().toUpperCase();
+    const normalizedRequiredRoles = requiredRoles.map((role) =>
+      String(role).trim().toUpperCase()
+    );
+
+    if (!normalizedRequiredRoles.includes(userRole)) {
       throw new ForbiddenException(
         `User role "${user.role}" does not have access to this resource. Required roles: ${requiredRoles.join(', ')}`
       );

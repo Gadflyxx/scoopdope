@@ -14,14 +14,34 @@ export class MetricsInterceptor implements NestInterceptor {
     const route = request.route?.path || request.url;
     const startTime = Date.now();
 
-    return next.handle().pipe(
-      tap(() => {
-        const statusCode = response.statusCode;
-        const durationSeconds = (Date.now() - startTime) / 1000;
+    // Skip recording metrics for the /metrics scrape endpoint itself to avoid
+    // polluting the registry with self-referential scrape traffic.
+    if (this.isMetricsEndpoint(request)) {
+      return next.handle();
+    }
 
-        this.metricsService.incrementHttpRequests(method, route, statusCode);
-        this.metricsService.observeHttpRequestDuration(method, route, statusCode, durationSeconds);
+    return next.handle().pipe(
+      tap({
+        next: () => {
+          this.recordRequest(method, route, response.statusCode, startTime);
+        },
+        error: (err) => {
+          const statusCode = err?.status || err?.statusCode || response.statusCode || 500;
+          this.recordRequest(method, route, statusCode, startTime);
+        },
       }),
     );
+  }
+
+  private isMetricsEndpoint(request: any): boolean {
+    const path: string = request.route?.path || request.url || '';
+    return path === '/metrics' || path.startsWith('/metrics?');
+  }
+
+  private recordRequest(method: string, route: string, statusCode: number, startTime: number): void {
+    const durationSeconds = (Date.now() - startTime) / 1000;
+
+    this.metricsService.incrementHttpRequests(method, route, statusCode);
+    this.metricsService.observeHttpRequestDuration(method, route, statusCode, durationSeconds);
   }
 }

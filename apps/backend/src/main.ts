@@ -3,7 +3,6 @@ import './instrument';
 import * as compression from 'compression';
 import * as express from 'express';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe, Logger, BadRequestException } from '@nestjs/common';
@@ -206,7 +205,7 @@ async function bootstrap() {
   app.use((req, res, next) => correlationId.use(req, res, next));
   app.use((req, res, next) => requestValidation.use(req, res, next));
 
-  app.setGlobalPrefix('v1', { exclude: ['health', 'health/live', 'health/ready', 'health/startup', 'health/environment', 'health/version'] });
+  app.setGlobalPrefix('v1', { exclude: ['health', 'health/live', 'health/ready', 'health/startup', 'health/environment', 'health/version', 'metrics'] });
   app.useGlobalPipes(
     new ValidationPipe({
       // Strip properties not declared in the DTO

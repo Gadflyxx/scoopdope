@@ -38,6 +38,8 @@ import { PaymentsModule } from './payments/payments.module';
 import { RewardsModule } from './rewards/rewards.module';
 import { SupportTicketsModule } from './support-tickets/support-tickets.module';
 import { HealthModule } from './health/health.module';
+import { MetricsModule } from './metrics/metrics.module';
+import { SearchModule } from './search/search.module';
 import * as redisStore from 'cache-manager-redis-store';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation.schema';

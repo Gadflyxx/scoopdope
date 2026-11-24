@@ -38,6 +38,10 @@ export class InstructorApplication {
   @Column({ nullable: true, type: 'varchar' })
   portfolioUrl: string | null;
 
+  /** Link to sample content (e.g. lesson outline, video, article) */
+  @Column({ nullable: true, type: 'varchar' })
+  sampleContentUrl: string | null;
+
   /** Instructor has accepted the instructor agreement */
   @Column({ default: false })
   agreementAccepted: boolean;
@@ -50,6 +54,10 @@ export class InstructorApplication {
 
   @Column({ nullable: true, type: 'text' })
   adminNote: string | null;
+
+  /** Reason provided by admin when rejecting the application */
+  @Column({ nullable: true, type: 'text' })
+  rejectionReason: string | null;
 
   @Column({ nullable: true })
   reviewedBy: string | null;

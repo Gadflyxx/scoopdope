@@ -77,3 +77,47 @@ export async function closePool(): Promise<void> {
     pool = undefined;
   }
 }
+
+/**
+ * Result of a database health probe.
+ */
+export interface DatabaseHealthResult {
+  status: 'up' | 'down';
+  latencyMs: number;
+  error?: string;
+}
+
+/**
+ * Runs a lightweight `SELECT 1` against the shared pool to verify database
+ * connectivity. The probe is bounded by a timeout so a hung or unreachable
+ * database cannot stall health check responses.
+ */
+export async function checkDatabaseHealth(
+  timeoutMs: number = toInt(process.env.DB_HEALTH_TIMEOUT_MS, 2000),
+): Promise<DatabaseHealthResult> {
+  const startedAt = Date.now();
+  let timer: NodeJS.Timeout | undefined;
+
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`Database health check timed out after ${timeoutMs}ms`)),
+        timeoutMs,
+      );
+    });
+
+    await Promise.race([getPool().query('SELECT 1'), timeout]);
+
+    return { status: 'up', latencyMs: Date.now() - startedAt };
+  } catch (err) {
+    return {
+      status: 'down',
+      latencyMs: Date.now() - startedAt,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
