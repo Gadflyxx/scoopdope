@@ -101,6 +101,9 @@ const withPWA = require('next-pwa')({
 
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 const { withSentryConfig } = require('@sentry/nextjs');
+const withBundleAnalyzer = require('@next/bundle-analyzer')({
+  enabled: process.env.ANALYZE === 'true',
+});
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -200,4 +203,6 @@ const sentryConfig = {
   automaticVercelMonitors: true,
 };
 
-module.exports = withSentryConfig(withPWA(withNextIntl(nextConfig)), sentryConfig);
+module.exports = withBundleAnalyzer(
+  withSentryConfig(withPWA(withNextIntl(nextConfig)), sentryConfig)
+);
