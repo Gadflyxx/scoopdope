@@ -34,6 +34,76 @@ export class CourseVersioningService {
     );
   }
 
+  async publishNewVersion(courseId: string, changeNote: string, createdById?: string): Promise<CourseVersion> {
+    const course = await this.courseRepo.findOne({
+      where: { id: courseId, isDeleted: false },
+      relations: ['modules', 'modules.lessons'],
+    });
+    if (!course) throw new NotFoundException('Course not found');
+
+    const latest = await this.getLatestVersionNumber(courseId);
+    const versionNumber = latest + 1;
+    const versionTag = `v${versionNumber}.0`;
+
+    const version = await this.versionRepo.save(
+      this.versionRepo.create({
+        courseId,
+        versionNumber,
+        versionTag,
+        snapshot: course as unknown as Record<string, any>,
+        changeNote,
+        createdById,
+      }),
+    );
+
+    await this.courseRepo.update(courseId, { version: versionNumber });
+
+    return version;
+  }
+
+  async getLatestVersionNumber(courseId: string): Promise<number> {
+    const latest = await this.versionRepo.findOne({
+      where: { courseId },
+      order: { versionNumber: 'DESC' },
+    });
+    return latest ? latest.versionNumber : 0;
+  }
+
+  async getLessonContentForVersion(
+    courseId: string,
+    lessonId: string,
+    versionNumber: number,
+  ): Promise<Record<string, any> | null> {
+    const version = await this.versionRepo.findOne({
+      where: { courseId, versionNumber },
+    });
+
+    if (!version) {
+      const course = await this.courseRepo.findOne({
+        where: { id: courseId, isDeleted: false },
+        relations: ['modules', 'modules.lessons'],
+      });
+      if (!course) throw new NotFoundException('Course not found');
+      return this.findLessonInSnapshot(course as unknown as Record<string, any>, lessonId);
+    }
+
+    return this.findLessonInSnapshot(version.snapshot, lessonId);
+  }
+
+  private findLessonInSnapshot(
+    snapshot: Record<string, any>,
+    lessonId: string,
+  ): Record<string, any> | null {
+    const modules = Array.isArray(snapshot?.modules) ? snapshot.modules : [];
+    for (const module of modules) {
+      const lessons = Array.isArray(module?.lessons) ? module.lessons : [];
+      for (const lesson of lessons) {
+        if (lesson?.id === lessonId) return lesson;
+      }
+    }
+    return null;
+  }
+
   async listVersions(courseId: string): Promise<CourseVersion[]> {
     return this.versionRepo.find({
       where: { courseId },

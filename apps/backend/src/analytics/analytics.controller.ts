@@ -1,6 +1,6 @@
-import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse } from '@nestjs/swagger';
-import { IsOptional, IsDateString } from 'class-validator';
+import { IsOptional, IsDateString, IsUUID, IsEnum, IsNumber, Min } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -15,6 +15,25 @@ class AnalyticsQueryDto implements PlatformAnalyticsQuery {
   @IsOptional()
   @IsDateString()
   to?: string;
+}
+
+export enum VideoEventType {
+  PLAY = 'play',
+  PAUSE = 'pause',
+  SEEK = 'seek',
+  ENDED = 'ended',
+}
+
+class VideoEventDto {
+  @IsUUID()
+  lessonId: string;
+
+  @IsEnum(VideoEventType)
+  event_type: VideoEventType;
+
+  @IsNumber()
+  @Min(0)
+  timestamp_seconds: number;
 }
 
 @ApiTags('analytics')
@@ -57,6 +76,33 @@ export class AnalyticsController {
   @ApiResponse({ status: 500, description: 'Internal server error' })
   resolvePseudoId(@Param('pseudoId') pseudoId: string) {
     return this.pseudonymization.resolvePseudoId(pseudoId);
+  }
+
+  @Post('analytics/video-events')
+  @ApiOperation({ summary: 'Record a video player telemetry event' })
+  @ApiResponse({ status: 201, description: 'Event recorded' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  recordVideoEvent(@Body() dto: VideoEventDto) {
+    return this.service.recordVideoEvent(dto);
+  }
+
+  @Get('analytics/video-events/lesson/:lessonId/heatmap')
+  @UseGuards(RolesGuard)
+  @Roles('instructor', 'admin')
+  @ApiOperation({ summary: 'Get video engagement heatmap for a lesson (instructor/admin only)' })
+  @ApiParam({ name: 'lessonId', description: 'Lesson ID', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' })
+  @ApiResponse({ status: 200, description: 'Heatmap returned' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @ApiResponse({ status: 404, description: 'Not found' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  getVideoHeatmap(@Param('lessonId') lessonId: string) {
+    return this.service.getVideoHeatmap(lessonId);
   }
 
   @Get('courses/:id/analytics')

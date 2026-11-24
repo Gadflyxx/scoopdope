@@ -233,7 +233,10 @@ jobs:
         run: npx playwright install --with-deps chromium firefox
         working-directory: apps/frontend
 
-      - name: Run Playwright tests
+      # @axe-core/playwright is a devDependency installed by `npm ci` above.
+      # Every spec calls checkA11y(), which throws on any axe violation and
+      # therefore fails this job (and CI) on accessibility regressions.
+      - name: Run Playwright tests (with axe accessibility checks)
         run: npm run test:e2e:ci
         working-directory: apps/frontend
 
@@ -244,3 +247,14 @@ jobs:
           name: playwright-report
           path: apps/frontend/playwright-report/
           retention-days: 14
+
+      - name: Upload accessibility report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: axe-accessibility-report
+          path: |
+            apps/frontend/axe-report.json
+            apps/frontend/playwright-report/
+          retention-days: 14
+          if-no-files-found: warn

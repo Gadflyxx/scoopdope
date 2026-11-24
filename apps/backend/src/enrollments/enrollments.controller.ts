@@ -113,11 +113,26 @@ export class EnrollmentsController {
   @ApiResponse({
     status: 200,
     description: 'List of enrollments',
-    schema: { example: [{ id: 'uuid', courseId: 'uuid', createdAt: '2024-01-01T00:00:00.000Z' }] },
+    schema: {
+      example: [
+        {
+          id: 'uuid',
+          courseId: 'uuid',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          enrolledVersionNumber: 1,
+          latestVersion: 2,
+        },
+      ],
+    },
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  getUserEnrollments(@Param('id') userId: string) {
-    return this.enrollmentsService.findByUser(userId);
+  async getUserEnrollments(@Param('id') userId: string) {
+    const enrollments = await this.enrollmentsService.findByUser(userId);
+    return enrollments.map((enrollment) => ({
+      ...enrollment,
+      enrolledVersionNumber: enrollment.enrolledVersionNumber,
+      latestVersion: enrollment.latestVersion,
+    }));
   }
 
   @Get('courses/:id/enrollments/count')
@@ -153,12 +168,30 @@ export class EnrollmentsController {
   @ApiResponse({ status: 403, description: 'Forbidden' })
   @ApiResponse({ status: 429, description: 'Too many requests' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
-  @ApiResponse({ status: 200, description: 'Enrollment upgraded to latest version' })
+  @ApiResponse({
+    status: 200,
+    description: 'Enrollment upgraded to latest version',
+    schema: {
+      example: {
+        id: 'uuid',
+        userId: 'uuid',
+        courseId: 'uuid',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        enrolledVersionNumber: 2,
+        latestVersion: 2,
+      },
+    },
+  })
   @ApiResponse({ status: 404, description: 'Enrollment or version not found' })
-  upgradeVersion(
+  async upgradeVersion(
     @Param('id') courseId: string,
     @Request() req: { user: { id: string } },
   ) {
-    return this.enrollmentsService.upgradeVersion(req.user.id, courseId);
+    const enrollment = await this.enrollmentsService.upgradeVersion(req.user.id, courseId);
+    return {
+      ...enrollment,
+      enrolledVersionNumber: enrollment.enrolledVersionNumber,
+      latestVersion: enrollment.latestVersion,
+    };
   }
 }

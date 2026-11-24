@@ -29,6 +29,16 @@ interface CachedCount {
   expiresAt: number;
 }
 
+/** Enrollment shape returned to clients, including content version info. */
+export interface EnrollmentResponse extends Enrollment {
+  /** Content version the learner is frozen to. */
+  enrolledVersionNumber: number | null;
+  /** The course's current (latest) content version. */
+  latestVersionNumber: number | null;
+  /** True when the course has a newer version than the learner's. */
+  newVersionAvailable: boolean;
+}
+
 @Injectable()
 export class EnrollmentsService {
   private readonly logger = new Logger(EnrollmentsService.name);
@@ -123,15 +133,13 @@ export class EnrollmentsService {
     // have completed every prerequisite course first.
     await this.prereqService.enforcePrerequisites(userId, courseId, adminOverride);
 
-    // Pin the student to the latest published version at enrollment time
-    const versions = await this.versioningService.listVersions(courseId);
-    const latestVersion = versions[0] ?? null;
-
+    // Freeze the course's current content version at enrollment time so the
+    // learner stays on this version even if the instructor publishes a new one.
     const enrollment = await this.repo.save(
       this.repo.create({
         userId,
         courseId,
-        enrolledVersionNumber: latestVersion?.versionNumber ?? null,
+        enrolledVersionNumber: course.version ?? null,
         transactionHash: null,
       }),
     );
@@ -168,6 +176,44 @@ export class EnrollmentsService {
 
   async findByCourse(courseId: string): Promise<Enrollment[]> {
     return this.enrollmentRepository.find({ where: { courseId } });
+  }
+
+  /**
+   * Move an enrollment onto the course's latest content version.
+   *
+   * Only used when a learner explicitly opts in to the new version; existing
+   * enrollments are never migrated automatically.
+   */
+  async upgradeVersion(userId: string, courseId: string): Promise<Enrollment> {
+    const enrollment = await this.enrollmentRepository.findOne({
+      where: { userId, courseId },
+    });
+    if (!enrollment) throw new NotFoundException('Enrollment not found');
+
+    const course = await this.coursesService.findOne(courseId);
+    enrollment.enrolledVersionNumber = course.version ?? null;
+    return this.enrollmentRepository.save(enrollment);
+  }
+
+  /**
+   * Build an enrollment response that exposes the learner's frozen content
+   * version alongside the course's latest version so the frontend can show a
+   * 'New version available' banner.
+   */
+  async toResponse(enrollment: Enrollment): Promise<EnrollmentResponse> {
+    const course = await this.coursesService.findOne(enrollment.courseId);
+    const latestVersion = course.version ?? null;
+    const enrolledVersion = enrollment.enrolledVersionNumber ?? null;
+
+    return {
+      ...enrollment,
+      enrolledVersionNumber: enrolledVersion,
+      latestVersionNumber: latestVersion,
+      newVersionAvailable:
+        enrolledVersion !== null &&
+        latestVersion !== null &&
+        latestVersion > enrolledVersion,
+    };
   }
 
   async notifyAllEnrolled(courseId: string, message: string): Promise<void> {
@@ -256,12 +302,14 @@ export class EnrollmentsService {
     this.eventEmitter.emit('enrollment.removed', { userId, courseId });
   }
 
-  findByUser(userId: string): Promise<Enrollment[]> {
-    return this.enrollmentRepository.find({
+  async findByUser(userId: string): Promise<EnrollmentResponse[]> {
+    const enrollments = await this.enrollmentRepository.find({
       where: { userId },
       relations: ['course'],
       order: { enrolledAt: 'DESC' },
     });
+
+    return Promise.all(enrollments.map((enrollment) => this.toResponse(enrollment)));
   }
 
   async remove(id: string): Promise<void> {

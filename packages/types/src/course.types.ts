@@ -26,6 +26,8 @@ export interface CourseSummary {
   instructorId: string | null;
   requiresKyc: boolean;
   averageRating: number | null;
+  /** Current content version of the course */
+  version: number;
   createdAt: string;
 }
 
@@ -106,4 +108,20 @@ export interface CreateReviewDto {
   rating: number;
   /** Optional review text */
   comment?: string;
+}
+
+/**
+ * Enrollment record linking a learner to a course.
+ * The content version is frozen at enrollment time so in-progress
+ * learners continue on the version they started.
+ */
+export interface Enrollment {
+  id: string;
+  courseId: string;
+  learnerId: string;
+  /** Content version frozen at the time of enrollment */
+  enrolledVersionNumber: number;
+  /** Latest published content version of the course */
+  latestVersion: number;
+  enrolledAt: string;
 }

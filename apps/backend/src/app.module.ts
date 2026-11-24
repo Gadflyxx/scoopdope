@@ -17,6 +17,7 @@ import { Bundle } from './bundles/bundle.entity';
 import { BundleCourse } from './bundles/bundle-course.entity';
 import { Payment } from './payments/payment.entity';
 import { SupportTicketAttachment } from './support-tickets/support-ticket-attachment.entity';
+import { VideoEvent } from './analytics/video-event.entity';
 
 // ── Modules ─────────────────────────────────────────────────────────────────────
 
@@ -111,6 +112,7 @@ export class GracefulShutdownService implements OnApplicationShutdown {
           BundleCourse,
           Payment,
           SupportTicketAttachment,
+          VideoEvent,
         ],
         synchronize: configService.get('environment') !== 'production',
         logging: configService.get('environment') !== 'production',

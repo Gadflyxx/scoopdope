@@ -6,6 +6,7 @@ import { Cache } from 'cache-manager';
 import { Enrollment } from '../enrollments/enrollment.entity';
 import { Progress } from '../progress/progress.entity';
 import { Lesson } from '../courses/lesson.entity';
+import { VideoEvent } from '../analytics/video-event.entity';
 
 export interface DateRangeFilter {
   from?: Date;
@@ -23,6 +24,30 @@ export interface LessonDifficulty {
   moduleId: string;
   dropCount: number;
   avgProgressAtDrop: number;
+}
+
+export interface VideoHeatmapSegment {
+  /** Start of the segment in seconds */
+  startSeconds: number;
+  /** End of the segment in seconds */
+  endSeconds: number;
+  /** Number of replay (seek-back) events landing in this segment */
+  replayCount: number;
+}
+
+export interface LessonVideoHeatmap {
+  lessonId: string;
+  lessonTitle: string;
+  /** Number of distinct learners who played the video */
+  uniqueViewers: number;
+  /** Number of learners who reached the end of the video */
+  completions: number;
+  /** Completion percentage (0-100) */
+  completionPercentage: number;
+  /** Most-replayed segment, if any replay activity was recorded */
+  mostReplayedSegment?: VideoHeatmapSegment;
+  /** Replay counts bucketed into fixed-size segments */
+  segments: VideoHeatmapSegment[];
 }
 
 export interface InstructorCourseAnalytics {
@@ -45,6 +70,8 @@ export interface InstructorCourseAnalytics {
   primaryDropoutLesson?: LessonDifficulty;
   /** Top 5 lessons by difficulty (dropout rate) */
   difficultLessons: LessonDifficulty[];
+  /** Per-lesson video engagement heatmap */
+  videoHeatmap: LessonVideoHeatmap[];
 }
 
 @Injectable()
@@ -60,6 +87,8 @@ export class InstructorAnalyticsService {
     private progressRepo: Repository<Progress>,
     @InjectRepository(Lesson)
     private lessonRepo: Repository<Lesson>,
+    @InjectRepository(VideoEvent)
+    private videoEventRepo: Repository<VideoEvent>,
     @Inject(CACHE_MANAGER) private cache: Cache,
   ) {}
 
@@ -90,6 +119,7 @@ export class InstructorAnalyticsService {
       trend14Days,
       trend30Days,
       difficultLessons,
+      videoHeatmap,
     ] = await Promise.all([
       this.countEnrollments(courseId, filter),
       this.countCompletions(courseId, filter),
@@ -98,6 +128,7 @@ export class InstructorAnalyticsService {
       this.getEnrollmentTrend(courseId, 14),
       this.getEnrollmentTrend(courseId, 30),
       this.getDifficultLessons(courseId),
+      this.getVideoHeatmap(courseId),
     ]);
 
     const completionRate =
@@ -116,6 +147,7 @@ export class InstructorAnalyticsService {
       trend30Days,
       primaryDropoutLesson: difficultLessons[0],
       difficultLessons,
+      videoHeatmap,
     };
 
     await this.cache.set(cacheKey, result, this.CACHE_TTL);
@@ -180,6 +212,92 @@ export class InstructorAnalyticsService {
 
     await this.cache.set(cacheKey, result, this.CACHE_TTL);
     return result;
+  }
+
+  /**
+   * Aggregate raw video events for every lesson in a course into a per-lesson
+   * heatmap: completion percentage plus the most-replayed segment.
+   */
+  async getVideoHeatmap(courseId: string): Promise<LessonVideoHeatmap[]> {
+    const SEGMENT_SIZE = 10; // seconds per heatmap bucket
+
+    const lessons = await this.lessonRepo.find({ where: { courseId } });
+    if (!lessons.length) return [];
+
+    const lessonIds = lessons.map((l) => l.id);
+    const events = await this.videoEventRepo
+      .createQueryBuilder('v')
+      .where('v.lessonId IN (:...lessonIds)', { lessonIds })
+      .getMany();
+
+    if (!events.length) return [];
+
+    const byLesson = new Map<string, VideoEvent[]>();
+    for (const event of events) {
+      const list = byLesson.get(event.lessonId);
+      if (list) list.push(event);
+      else byLesson.set(event.lessonId, [event]);
+    }
+
+    const heatmaps: LessonVideoHeatmap[] = [];
+
+    for (const lesson of lessons) {
+      const lessonEvents = byLesson.get(lesson.id);
+      if (!lessonEvents?.length) continue;
+
+      const viewers = new Set<string>();
+      const completers = new Set<string>();
+      const segmentCounts = new Map<number, number>();
+
+      for (const event of lessonEvents) {
+        if (event.userId) viewers.add(event.userId);
+
+        if (event.eventType === 'ended') {
+          if (event.userId) completers.add(event.userId);
+          else completers.add(`anon:${event.id}`);
+        }
+
+        if (event.eventType === 'seeked') {
+          const bucket =
+            Math.floor(event.timestampSeconds / SEGMENT_SIZE) * SEGMENT_SIZE;
+          segmentCounts.set(bucket, (segmentCounts.get(bucket) ?? 0) + 1);
+        }
+      }
+
+      const segments: VideoHeatmapSegment[] = Array.from(segmentCounts.entries())
+        .map(([startSeconds, replayCount]) => ({
+          startSeconds,
+          endSeconds: startSeconds + SEGMENT_SIZE,
+          replayCount,
+        }))
+        .sort((a, b) => a.startSeconds - b.startSeconds);
+
+      const mostReplayedSegment = segments.reduce<VideoHeatmapSegment | undefined>(
+        (best, seg) => (!best || seg.replayCount > best.replayCount ? seg : best),
+        undefined,
+      );
+
+      const uniqueViewers = viewers.size;
+      const completions = completers.size;
+      const completionPercentage =
+        uniqueViewers > 0
+          ? Math.round((completions / uniqueViewers) * 10000) / 100
+          : 0;
+
+      heatmaps.push({
+        lessonId: lesson.id,
+        lessonTitle: lesson.title,
+        uniqueViewers,
+        completions,
+        completionPercentage,
+        mostReplayedSegment,
+        segments,
+      });
+    }
+
+    return heatmaps.sort(
+      (a, b) => b.completionPercentage - a.completionPercentage,
+    );
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────────

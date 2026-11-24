@@ -90,6 +90,14 @@ export class Course {
   publishedAt: Date | null;
 
   /**
+   * Current content version of the course.
+   * Incremented when an instructor publishes a new version; enrollments
+   * freeze the version they started on so in-progress learners are unaffected.
+   */
+  @Column({ type: 'int', default: 1 })
+  version: number;
+
+  /**
    * Maximum number of students that can be enrolled simultaneously.
    * Null means unlimited.
    */
@@ -147,5 +155,20 @@ export class Course {
     this.status = CourseStatus.PUBLISHED;
     this.isPublished = true;
     this.publishedAt = new Date();
+  }
+
+  /**
+   * Publish a new content version of the course.
+   * Existing enrollments keep the version they started on; new enrollments
+   * pick up this latest version.
+   */
+  publishNewVersion(): void {
+    this.version = (this.version ?? 1) + 1;
+    this.publishedAt = new Date();
+  }
+
+  /** Latest content version available for new enrollments. */
+  get latestVersion(): number {
+    return this.version ?? 1;
   }
 }
