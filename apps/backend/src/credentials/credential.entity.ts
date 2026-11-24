@@ -63,6 +63,16 @@ export class Credential {
   @Column({ nullable: true, type: 'timestamp' })
   expiresAt: Date | null;
 
+  // Why: revocation is recorded alongside the original issuance so the on-chain proof stays immutable.
+  @Column({ nullable: true, type: 'timestamp' })
+  revokedAt: Date | null;
+
+  @Column({ nullable: true, type: 'text' })
+  revocationReason: string | null;
+
+  @Column({ nullable: true })
+  revokedBy: string | null;
+
   @CreateDateColumn()
   issuedAt: Date;
 }

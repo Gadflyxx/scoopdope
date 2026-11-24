@@ -2,14 +2,34 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import api from '@/lib/api';
-import { TranscriptDisplay } from '@/components/courses/TranscriptDisplay';
-import { NotesPanel } from '@/components/courses/NotesPanel';
-import { ProgressTracker } from '@/components/courses/ProgressTracker';
-import { ChevronLeft, ChevronRight, Layout, BookOpen, TrendingUp, Download, FileText } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Layout, BookOpen, TrendingUp, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useVideoShortcuts } from '@/hooks/useVideoShortcuts';
 import { useSyncProgress } from '@/hooks/useSyncProgress';
+import { WifiOff } from 'lucide-react';
+import {
+  cacheLesson,
+  getCachedLesson,
+  queueOfflineAction,
+  flushOfflineQueue,
+  registerBackgroundSync,
+} from '@/lib/offline';
+
+// Heavy sidebar components are code-split and loaded on demand (#1392).
+const TranscriptDisplay = dynamic(
+  () => import('@/components/courses/TranscriptDisplay').then((m) => m.TranscriptDisplay),
+  { ssr: false, loading: () => <div className="p-4 text-sm text-gray-500">Loading transcript...</div> }
+);
+const NotesPanel = dynamic(
+  () => import('@/components/courses/NotesPanel').then((m) => m.NotesPanel),
+  { ssr: false, loading: () => <div className="p-4 text-sm text-gray-500">Loading notes...</div> }
+);
+const ProgressTracker = dynamic(
+  () => import('@/components/courses/ProgressTracker').then((m) => m.ProgressTracker),
+  { ssr: false, loading: () => <div className="p-4 text-sm text-gray-500">Loading progress...</div> }
+);
 
 export default function LessonPage() {
   const params = useParams();
@@ -21,10 +41,9 @@ export default function LessonPage() {
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
   const [sidebarTab, setSidebarTab] = useState<'transcript' | 'notes' | 'progress'>('transcript');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
-  const [resources, setResources] = useState<any[]>([]);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [isExportingNotes, setIsExportingNotes] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const sessionIdRef = useRef<string | null>(null);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -33,12 +52,57 @@ export default function LessonPage() {
 
   useVideoShortcuts(videoRef);
 
+  // Track connectivity and flush queued offline actions when back online.
+  useEffect(() => {
+    if (typeof navigator === 'undefined') return;
+    setIsOffline(!navigator.onLine);
+
+    const handleOnline = () => {
+      setIsOffline(false);
+      flushOfflineQueue().catch(() => {});
+    };
+    const handleOffline = () => setIsOffline(true);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   useEffect(() => {
     if (!lessonId) return;
-    api.get(`/lessons/${lessonId}`)
-      .then(({ data }) => setLesson(data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    let cancelled = false;
+
+    const loadLesson = async () => {
+      // Serve cached lesson content immediately when offline (or as a fallback).
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const cached = await getCachedLesson(lessonId as string).catch(() => null);
+        if (!cancelled && cached) {
+          setLesson(cached);
+          setLoading(false);
+          return;
+        }
+      }
+
+      try {
+        const { data } = await api.get(`/lessons/${lessonId}`);
+        if (cancelled) return;
+        setLesson(data);
+        cacheLesson(lessonId as string, data).catch(() => {});
+      } catch {
+        const cached = await getCachedLesson(lessonId as string).catch(() => null);
+        if (!cancelled && cached) setLesson(cached);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    loadLesson();
+    return () => {
+      cancelled = true;
+    };
   }, [lessonId]);
 
   useEffect(() => {
@@ -187,7 +251,17 @@ export default function LessonPage() {
     if (!courseId || !lessonId) return;
     setIsCompleting(true);
     try {
-      await recordProgress(courseId, lessonId, 100);
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        await queueOfflineAction({
+          type: 'progress',
+          courseId: courseId as string,
+          lessonId: lessonId as string,
+          progress: 100,
+        });
+        registerBackgroundSync().catch(() => {});
+      } else {
+        await recordProgress(courseId, lessonId, 100);
+      }
       setLesson((prev: any) => ({ ...prev, completed: true }));
     } catch (error) {
       console.error('Failed to mark lesson as complete:', error);
@@ -201,26 +275,51 @@ export default function LessonPage() {
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col">
+      {/* Offline indicator banner */}
+      {isOffline && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="bg-amber-500 text-white text-sm px-4 py-2 flex items-center justify-center gap-2"
+          data-testid="offline-banner"
+        >
+          <WifiOff className="w-4 h-4" />
+          You&apos;re offline. Cached lesson content is available; notes and progress will sync when you reconnect.
+        </div>
+      )}
+
       {/* Header */}
-      <header className="bg-white dark:bg-gray-900 border-b dark:border-gray-800 p-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <header className="bg-white dark:bg-gray-900 border-b dark:border-gray-800 p-4 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
           <Button variant="ghost" size="sm" onClick={() => router.push(`/courses/${courseId}`)}>
             <ChevronLeft className="w-4 h-4 mr-2" />
-            Back to Course
+            <span className="hidden sm:inline">Back to Course</span>
           </Button>
-          <h1 className="text-lg font-bold">{lesson.title}</h1>
+          <h1 className="text-base sm:text-lg font-bold truncate">{lesson.title}</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Button variant="outline" size="sm"><ChevronLeft className="w-4 h-4" /></Button>
           <Button variant="outline" size="sm"><ChevronRight className="w-4 h-4" /></Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="lg:hidden"
+            onClick={() => setIsSidebarOpen(true)}
+            aria-label="Open lesson navigation"
+            aria-expanded={isSidebarOpen}
+            data-testid="sidebar-toggle"
+          >
+            <Layout className="w-4 h-4 mr-1" />
+            Lessons
+          </Button>
         </div>
       </header>
 
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-w-0">
         {/* Main Content */}
-        <div className="flex-1 overflow-y-auto p-4 lg:p-8">
-          <div className="max-w-5xl mx-auto space-y-6">
-            <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-2xl">
+        <div className="flex-1 min-w-0 overflow-y-auto p-4 lg:p-8">
+          <div className="max-w-5xl mx-auto space-y-6 w-full">
+            <div className="w-full aspect-video bg-black rounded-xl overflow-hidden shadow-2xl" data-testid="video-container">
               {lesson.videoUrl ? (
                 <video
                   ref={videoRef}
@@ -281,8 +380,37 @@ export default function LessonPage() {
           </div>
         </div>
 
-        {/* Sidebar */}
-        <aside className="w-full lg:w-96 bg-white dark:bg-gray-900 border-t lg:border-t-0 lg:border-l dark:border-gray-800 flex flex-col h-[50vh] lg:h-auto">
+        {/* Mobile backdrop */}
+        {isSidebarOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+            onClick={() => setIsSidebarOpen(false)}
+            aria-hidden="true"
+            data-testid="sidebar-backdrop"
+          />
+        )}
+
+        {/* Sidebar: bottom sheet on mobile, static column on desktop */}
+        <aside
+          className={`fixed inset-x-0 bottom-0 z-50 h-[70vh] max-h-[85vh] rounded-t-2xl bg-white dark:bg-gray-900 border-t dark:border-gray-800 flex flex-col transition-transform duration-300 ease-in-out ${
+            isSidebarOpen ? 'translate-y-0' : 'translate-y-full'
+          } lg:static lg:z-auto lg:translate-y-0 lg:rounded-none lg:h-auto lg:w-96 lg:border-t-0 lg:border-l lg:transition-none`}
+          aria-label="Lesson navigation"
+          aria-hidden={!isSidebarOpen ? undefined : false}
+          data-testid="lesson-sidebar"
+        >
+          {/* Mobile sheet handle + close */}
+          <div className="flex items-center justify-between px-4 pt-3 lg:hidden">
+            <div className="mx-auto h-1.5 w-12 rounded-full bg-gray-300 dark:bg-gray-700" aria-hidden="true" />
+            <button
+              onClick={() => setIsSidebarOpen(false)}
+              className="absolute right-3 top-3 p-1.5 rounded-md text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+              aria-label="Close lesson navigation"
+              data-testid="sidebar-close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
           {/* Tab bar */}
           <div className="flex border-b dark:border-gray-800">
             <button
@@ -325,28 +453,13 @@ export default function LessonPage() {
                 onSeek={handleSeek}
               />
             ) : sidebarTab === 'notes' ? (
-              <div className="flex flex-col h-full">
-                <div className="flex-1 overflow-hidden">
-                  <NotesPanel
-                    lessonId={lessonId as string}
-                    lessonTitle={lesson.title}
-                    currentTime={currentTime}
-                    onSeek={handleSeek}
-                  />
-                </div>
-                <div className="p-3 border-t dark:border-gray-800">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={handleExportNotes}
-                    disabled={isExportingNotes}
-                  >
-                    <FileText className="w-4 h-4 mr-2" />
-                    {isExportingNotes ? 'Exporting...' : 'Export notes as PDF'}
-                  </Button>
-                </div>
-              </div>
+              <NotesPanel
+                lessonId={lessonId as string}
+                lessonTitle={lesson.title}
+                currentTime={currentTime}
+                onSeek={handleSeek}
+                isOffline={isOffline}
+              />
             ) : (
               <div className="p-4 overflow-y-auto h-full">
                 <ProgressTracker

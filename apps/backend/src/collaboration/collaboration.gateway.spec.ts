@@ -144,6 +144,47 @@ describe('CollaborationGateway', () => {
     });
   });
 
+  describe('memory leak regression (#1383)', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('returns to baseline after 100 clients connect and disconnect', () => {
+      jest.useFakeTimers();
+      const socketsMap = (gateway as any).sockets as Map<string, any>;
+      expect(socketsMap).toBeDefined();
+      const baselineSockets = socketsMap.size;
+      const baselinePresence = presence.getActiveCount('c1');
+
+      const clients: any[] = [];
+      for (let i = 0; i < 100; i++) {
+        const c = {
+          id: `sock-${i}`,
+          join: jest.fn(),
+          leave: jest.fn(),
+          emit: jest.fn(),
+          disconnect: jest.fn(),
+          handshake: { auth: { token: 'valid-token' } },
+        };
+        clients.push(c);
+        gateway.onJoin(c, { courseId: 'c1', instructorId: `i${i}` });
+      }
+
+      expect(presence.getActiveCount('c1')).toBe(baselinePresence + 100);
+      expect(socketsMap.size).toBe(baselineSockets + 100);
+
+      for (const c of clients) {
+        gateway.handleDisconnect(c);
+      }
+
+      expect(socketsMap.size).toBe(baselineSockets);
+      expect(presence.getActiveCount('c1')).toBe(baselinePresence);
+      expect(presence.isPresent('c1', 'i0')).toBe(false);
+      expect(presence.isPresent('c1', 'i99')).toBe(false);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+  });
+
   it('enrollment-event broadcasts a notification to the course room', () => {
     gateway.onJoin(client, { courseId: 'c1', instructorId: 'i1' });
     emits.length = 0;

@@ -116,103 +116,18 @@ export interface CreateReviewDto {
 }
 
 /**
- * A single week in an instructor analytics time series.
+ * Completion status of a single prerequisite course for a learner.
  */
-export interface InstructorAnalyticsWeek {
-  /** ISO 8601 date of the week start (Monday) */
-  weekStart: string;
-  enrollments: number;
-  revenue: number;
-  completionRate: number;
-}
-
-/**
- * Per-course analytics row for an instructor.
- */
-export interface InstructorAnalyticsCourseRow {
+export interface PrerequisiteStatus {
   courseId: string;
   title: string;
-  enrollments: number;
-  revenue: number;
-  /** 0–1 */
-  completionRate: number;
+  completed: boolean;
 }
 
 /**
- * Aggregated analytics summary for the authenticated instructor.
+ * Response shape for the prerequisites status endpoint of a course.
  */
-export interface InstructorAnalyticsSummary {
-  courses: InstructorAnalyticsCourseRow[];
-  /** Weekly breakdown for the last 12 weeks */
-  weekly: InstructorAnalyticsWeek[];
-  totals: {
-    enrollments: number;
-    revenue: number;
-    /** 0–1 */
-    completionRate: number;
-  };
-}
-
-/**
- * A downloadable resource attached to a lesson.
- */
-export interface LessonResource {
-  id: string;
-  lessonId: string;
-  filename: string;
-  sizeBytes: number;
-  mimeType: string;
-  createdAt: string;
-}
-
-/**
- * DTO for attaching a resource to a lesson.
- */
-export interface CreateLessonResourceDto {
-  filename: string;
-  storageKey: string;
-  sizeBytes: number;
-  mimeType: string;
-}
-
-/**
- * Response for a resource download request.
- */
-export interface LessonResourceDownload {
-  url: string;
-  /** ISO 8601 datetime when the signed URL expires */
-  expiresAt: string;
-}
-
-/**
- * A timestamped note taken by a learner on a lesson.
- */
-export interface Note {
-  id: string;
-  lessonId: string;
-  courseId: string;
-  content: string;
-  /** Position in the lesson video, in seconds */
-  timestampSeconds: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * DTO for creating a note.
- */
-export interface CreateNoteDto {
-  /** Min 1 character, HTML stripped */
-  content: string;
-  /** Position in the lesson video, in seconds */
-  timestampSeconds: number;
-}
-
-/**
- * DTO for updating an existing note.
- * All fields are optional.
- */
-export interface UpdateNoteDto {
-  content?: string;
-  timestampSeconds?: number;
+export interface CoursePrerequisitesResponse {
+  allSatisfied: boolean;
+  prerequisites: PrerequisiteStatus[];
 }

@@ -25,8 +25,12 @@ export function middleware(request: NextRequest) {
     ? handleI18nRouting(middlewareRequest)
     : NextResponse.next({ request: { headers: requestHeaders } });
 
+  // Ensure the nonce is forwarded to the app via request headers so that
+  // `headers().get('x-nonce')` works in server components, even when the
+  // i18n middleware produced the response.
+  response.headers.set('x-nonce', nonce);
+
   response.headers.set('Content-Security-Policy', cspHeader);
-  response.headers.set('Content-Security-Policy-Report-Only', cspHeader);
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('X-Frame-Options', 'DENY');
   response.headers.set('X-XSS-Protection', '1; mode=block');
