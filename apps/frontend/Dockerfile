@@ -1,5 +1,13 @@
 # Multi-stage build for production-optimized frontend
-FROM node:20-alpine AS builder
+#
+# Build from the repository root so the workspace lockfile is available:
+#   docker build -f apps/frontend/Dockerfile -t scoopdope-frontend .
+
+# Pin the base image to a specific Node 20 minor release instead of the
+# floating node:20-alpine tag, so rebuilds are reproducible.
+ARG NODE_VERSION=20.18
+
+FROM node:${NODE_VERSION}-alpine AS builder
 
 WORKDIR /app
 
@@ -19,7 +27,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build --workspace=apps/frontend
 
 # Production stage
-FROM node:20-alpine AS runner
+FROM node:${NODE_VERSION}-alpine AS runner
 
 WORKDIR /app
 
