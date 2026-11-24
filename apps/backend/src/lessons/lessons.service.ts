@@ -2,15 +2,39 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
   RequestRangeNotSatisfiableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Repository } from 'typeorm';
 import { createReadStream, promises as fsPromises, Stats } from 'fs';
 import { ReadStream } from 'fs';
 import { Lesson } from './lesson.entity';
 import { CreateLessonDto } from './dto/create-lesson.dto';
 import { UpdateLessonDto } from './dto/update-lesson.dto';
+import { Question } from '../qa/question.entity';
+import { Answer } from '../qa/answer.entity';
+import { QuestionUpvote } from '../qa/question-upvote.entity';
+import { CreateQuestionDto } from '../qa/dto/create-question.dto';
+import { CreateAnswerDto } from '../qa/dto/create-answer.dto';
+
+export const QA_QUESTION_CREATED_EVENT = 'qa.question.created';
+export const QA_ANSWER_CREATED_EVENT = 'qa.answer.created';
+
+export interface QuestionCreatedEvent {
+  questionId: string;
+  lessonId: string;
+  authorId: string;
+  instructorId: string;
+}
+
+export interface AnswerCreatedEvent {
+  answerId: string;
+  questionId: string;
+  authorId: string;
+  questionAuthorId: string;
+}
 
 export interface ParsedRange {
   start: number;
@@ -33,6 +57,13 @@ export class LessonsService {
   constructor(
     @InjectRepository(Lesson)
     private readonly lessonsRepository: Repository<Lesson>,
+    @InjectRepository(Question)
+    private readonly questionsRepository: Repository<Question>,
+    @InjectRepository(Answer)
+    private readonly answersRepository: Repository<Answer>,
+    @InjectRepository(QuestionUpvote)
+    private readonly questionUpvotesRepository: Repository<QuestionUpvote>,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async create(createLessonDto: CreateLessonDto): Promise<Lesson> {
@@ -74,6 +105,138 @@ export class LessonsService {
 
   async remove(id: string): Promise<void> {
     await this.lessonsRepository.delete(id);
+  }
+
+  /**
+   * Post a question on a lesson. The learner must be enrolled in the
+   * lesson's course. Emits `qa.question.created` so the instructor can
+   * be notified.
+   */
+  async createQuestion(
+    lessonId: string,
+    authorId: string,
+    createQuestionDto: CreateQuestionDto,
+  ): Promise<Question> {
+    const lesson = await this.lessonsRepository.findOne({
+      where: { id: lessonId },
+    });
+    if (!lesson) {
+      throw new NotFoundException('Lesson not found');
+    }
+
+    await this.assertEnrolled(lesson, authorId);
+
+    const question = this.questionsRepository.create({
+      lessonId,
+      authorId,
+      title: createQuestionDto.title,
+      body: createQuestionDto.body,
+      upvoteCount: 0,
+    });
+    const saved = await this.questionsRepository.save(question);
+
+    this.eventEmitter.emit(QA_QUESTION_CREATED_EVENT, {
+      questionId: saved.id,
+      lessonId,
+      authorId,
+      instructorId: lesson.instructorId,
+    } as QuestionCreatedEvent);
+
+    return saved;
+  }
+
+  /**
+   * List questions for a lesson, sorted by upvote count descending.
+   */
+  async findQuestionsByLesson(lessonId: string): Promise<Question[]> {
+    const lesson = await this.lessonsRepository.findOne({
+      where: { id: lessonId },
+    });
+    if (!lesson) {
+      throw new NotFoundException('Lesson not found');
+    }
+
+    return this.questionsRepository.find({
+      where: { lessonId },
+      order: { upvoteCount: 'DESC', createdAt: 'ASC' },
+    });
+  }
+
+  /**
+   * Answer a question. Emits `qa.answer.created` so the question author
+   * can be notified.
+   */
+  async createAnswer(
+    questionId: string,
+    authorId: string,
+    createAnswerDto: CreateAnswerDto,
+  ): Promise<Answer> {
+    const question = await this.questionsRepository.findOne({
+      where: { id: questionId },
+    });
+    if (!question) {
+      throw new NotFoundException('Question not found');
+    }
+
+    const answer = this.answersRepository.create({
+      questionId,
+      authorId,
+      body: createAnswerDto.body,
+    });
+    const saved = await this.answersRepository.save(answer);
+
+    this.eventEmitter.emit(QA_ANSWER_CREATED_EVENT, {
+      answerId: saved.id,
+      questionId,
+      authorId,
+      questionAuthorId: question.authorId,
+    } as AnswerCreatedEvent);
+
+    return saved;
+  }
+
+  /**
+   * Upvote a question. Idempotent per user: a repeated upvote by the
+   * same user does not increment the count again.
+   */
+  async upvoteQuestion(questionId: string, userId: string): Promise<Question> {
+    const question = await this.questionsRepository.findOne({
+      where: { id: questionId },
+    });
+    if (!question) {
+      throw new NotFoundException('Question not found');
+    }
+
+    const existing = await this.questionUpvotesRepository.findOne({
+      where: { questionId, userId },
+    });
+    if (existing) {
+      return question;
+    }
+
+    const upvote = this.questionUpvotesRepository.create({
+      questionId,
+      userId,
+    });
+    await this.questionUpvotesRepository.save(upvote);
+    await this.questionsRepository.increment({ id: questionId }, 'upvoteCount', 1);
+
+    return this.questionsRepository.findOne({ where: { id: questionId } });
+  }
+
+  private async assertEnrolled(lesson: Lesson, userId: string): Promise<void> {
+    // Enrollment is verified through the lesson's course relationship.
+    // When no course is associated, the lesson is treated as open.
+    const courseId = (lesson as Lesson & { courseId?: string }).courseId;
+    if (!courseId) {
+      return;
+    }
+    const enrolled = await this.lessonsRepository.manager
+      .getRepository('Enrollment')
+      .findOne({ where: { courseId, userId } });
+    if (!enrolled) {
+      throw new ForbiddenException('You are not enrolled in this lesson');
+    }
   }
 
   /**

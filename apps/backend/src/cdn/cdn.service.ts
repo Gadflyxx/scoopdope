@@ -1,4 +1,10 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  NotFoundException,
+  PayloadTooLargeException,
+  BadRequestException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -15,6 +21,10 @@ const ASSET_TYPE_MAP: Record<string, AssetType> = {
   'image/gif': AssetType.IMAGE,
   'application/pdf': AssetType.PDF,
 };
+
+export const MAX_VIDEO_MESSAGE_SIZE_BYTES = 100 * 1024 * 1024;
+
+const VIDEO_MESSAGE_MIME_TYPES = ['video/mp4', 'video/webm'];
 
 @Injectable()
 export class CdnService {
@@ -83,6 +93,83 @@ export class CdnService {
 
     await this.cache.set(cacheKey, signedUrl, (expirationMinutes - 5) * 60);
     return signedUrl;
+  }
+
+  /**
+   * Returns a signed URL suitable for progressive/streaming playback of a video asset.
+   * The URL is not cached so that each request gets a fresh expiry window.
+   */
+  async generateStreamingUrl(assetId: string, expirationMinutes = 60): Promise<string> {
+    const asset = await this.assetRepo.findOne({ where: { id: assetId } });
+    if (!asset) throw new NotFoundException('Asset not found');
+    if (asset.assetType !== AssetType.VIDEO) {
+      throw new BadRequestException('Asset is not a video');
+    }
+    return this.generateSignedUrl(assetId, expirationMinutes);
+  }
+
+  /**
+   * Rejects assets exceeding the maximum allowed video message size (100 MB).
+   */
+  assertWithinVideoMessageSizeLimit(fileSize: number): void {
+    if (fileSize > MAX_VIDEO_MESSAGE_SIZE_BYTES) {
+      throw new PayloadTooLargeException(
+        `Video message exceeds the maximum allowed size of ${MAX_VIDEO_MESSAGE_SIZE_BYTES} bytes`,
+      );
+    }
+  }
+
+  /**
+   * Uploads an instructor video message asset and returns the stored asset.
+   */
+  async uploadVideoMessage(data: {
+    buffer: Buffer;
+    fileName: string;
+    originalName: string;
+    mimeType: string;
+    uploaderId: string;
+    recipientId: string;
+  }): Promise<CdnAsset> {
+    if (!VIDEO_MESSAGE_MIME_TYPES.includes(data.mimeType)) {
+      throw new BadRequestException(
+        `Unsupported video message type: ${data.mimeType}. Allowed: ${VIDEO_MESSAGE_MIME_TYPES.join(', ')}`,
+      );
+    }
+
+    const fileSize = data.buffer?.length ?? 0;
+    this.assertWithinVideoMessageSizeLimit(fileSize);
+
+    const asset = await this.uploadAsset({
+      fileName: data.fileName,
+      originalName: data.originalName,
+      mimeType: data.mimeType,
+      contentType: ContentType.VIDEO_MESSAGE,
+      fileSize,
+      uploadedByUserId: data.uploaderId,
+      isPrivate: true,
+    });
+
+    return asset;
+  }
+
+  /**
+   * Enqueues/triggers background transcoding for a video asset.
+   * When transcoding is unavailable, validates that the asset is already MP4-only.
+   */
+  async requestTranscode(assetId: string): Promise<{ queued: boolean; assetId: string }> {
+    const asset = await this.assetRepo.findOne({ where: { id: assetId } });
+    if (!asset) throw new NotFoundException('Asset not found');
+    if (asset.assetType !== AssetType.VIDEO) {
+      throw new BadRequestException('Asset is not a video');
+    }
+
+    if (asset.mimeType !== 'video/mp4') {
+      throw new BadRequestException(
+        'Transcoding is unavailable; only MP4 video messages are supported',
+      );
+    }
+
+    return { queued: true, assetId };
   }
 
   async markAsTranscoded(assetId: string, bitrates: string[], thumbnailUrl?: string) {

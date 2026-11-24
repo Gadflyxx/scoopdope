@@ -1,12 +1,13 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol,
+    contract, contractimpl, contracttype, symbol_short, token, Address, Env, Symbol, Vec,
 };
 
 #[contracttype]
 pub enum DataKey {
     Admin,
     FundBalance,
+    Token,
     Application(u64),
     ApplicationCount,
     DonorTotal(Address),
@@ -26,6 +27,7 @@ const DONATE: Symbol = symbol_short!("donate");
 const APPLY: Symbol = symbol_short!("apply");
 const APPROVE: Symbol = symbol_short!("appr");
 const DISTRIBUTE: Symbol = symbol_short!("dist");
+const DISBURSE: Symbol = symbol_short!("disb");
 
 #[contract]
 pub struct ScholarshipFundContract;
@@ -41,6 +43,13 @@ impl ScholarshipFundContract {
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::FundBalance, &0_i128);
         env.storage().instance().set(&DataKey::ApplicationCount, &0_u64);
+    }
+
+    pub fn set_token(env: Env, admin: Address, token: Address) {
+        admin.require_auth();
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        assert!(admin == stored_admin, "Only admin can set token");
+        env.storage().instance().set(&DataKey::Token, &token);
     }
 
     pub fn donate(env: Env, donor: Address, amount: i128) {
@@ -175,6 +184,57 @@ impl ScholarshipFundContract {
 
         env.events()
             .publish((DISTRIBUTE, symbol_short!("stud")), (app.student, app.amount_requested));
+    }
+
+    /// Disburses scholarship funds to a list of recipients after the selection
+    /// period closes. Only the designated admin may call this. Each recipient
+    /// receives the corresponding amount from the fund's token balance. The
+    /// total must not exceed the recorded fund balance, otherwise the call
+    /// fails with an over-disbursement error.
+    pub fn disburse(env: Env, admin: Address, recipients: Vec<Address>, amounts: Vec<i128>) {
+        admin.require_auth();
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        assert!(admin == stored_admin, "Only admin can disburse");
+
+        assert!(
+            recipients.len() == amounts.len(),
+            "Recipients and amounts length mismatch"
+        );
+        assert!(recipients.len() > 0, "Recipient list is empty");
+
+        let mut total: i128 = 0;
+        for i in 0..amounts.len() {
+            let amount = amounts.get(i).unwrap();
+            assert!(amount > 0, "Disbursement amount must be positive");
+            total += amount;
+        }
+
+        let mut balance: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FundBalance)
+            .unwrap_or(0);
+        assert!(total <= balance, "Over-disbursement: exceeds fund balance");
+
+        let token_addr: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .expect("Token not configured");
+        let token_client = token::Client::new(&env, &token_addr);
+
+        for i in 0..recipients.len() {
+            let recipient = recipients.get(i).unwrap();
+            let amount = amounts.get(i).unwrap();
+            token_client.transfer(&env.current_contract_address(), &recipient, &amount);
+            env.events()
+                .publish((DISBURSE, symbol_short!("stud")), (recipient, amount));
+        }
+
+        balance -= total;
+        env.storage()
+            .instance()
+            .set(&DataKey::FundBalance, &balance);
     }
 
     pub fn get_fund_balance(env: Env) -> i128 {

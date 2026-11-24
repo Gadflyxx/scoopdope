@@ -153,8 +153,12 @@ const nextConfig = {
             key: 'Permissions-Policy',
             value: 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
           },
-          // CSP is now handled by middleware for nonce support
-          // See middleware.ts for dynamic CSP generation
+          // NOTE: Content-Security-Policy is intentionally NOT set here.
+          // CSP must be generated per-request in middleware.ts so that a fresh
+          // nonce can be included in `script-src` (e.g. `'nonce-<value>'`).
+          // Setting a static CSP header here would override the middleware's
+          // per-request nonce header and break Next.js inline scripts.
+          // See middleware.ts for dynamic CSP generation.
         ],
       },
     ];

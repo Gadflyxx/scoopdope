@@ -10,7 +10,12 @@ export type CourseLevel = 'beginner' | 'intermediate' | 'advanced';
 export type CourseLanguage = 'en' | 'fr' | 'ar' | 'es';
 
 /** Lifecycle status of a course */
-export type CourseStatus = 'draft' | 'scheduled' | 'published';
+export type CourseStatus =
+  | 'draft'
+  | 'under_review'
+  | 'scheduled'
+  | 'published'
+  | 'rejected';
 
 /**
  * Public course summary — used in list views and search results.
@@ -26,6 +31,8 @@ export interface CourseSummary {
   instructorId: string | null;
   requiresKyc: boolean;
   averageRating: number | null;
+  /** Notes provided by the admin when a course is rejected */
+  rejectionNotes?: string | null;
   createdAt: string;
 }
 

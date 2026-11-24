@@ -1,11 +1,27 @@
-import { Controller, Post, Get, Body, Param, Query, UseGuards, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
+  PayloadTooLargeException,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { CdnService } from './cdn.service';
 import { ContentType } from './cdn-asset.entity';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+
+const VIDEO_MAX_BYTES = 100 * 1024 * 1024;
+const VIDEO_MIME_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
 
 @ApiTags('cdn')
 @ApiBearerAuth()
@@ -55,6 +71,66 @@ export class CdnController {
       uploadedByUserId: user.id,
       isPrivate: data.isPrivate ?? true,
     });
+  }
+
+  @Post('video')
+  @UseGuards(RolesGuard)
+  @Roles('instructor')
+  @UseInterceptors(FileInterceptor('video', { limits: { fileSize: VIDEO_MAX_BYTES } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        video: { type: 'string', format: 'binary' },
+        lessonId: { type: 'string' },
+      },
+    },
+  })
+  @ApiOperation({ summary: 'Upload a video message asset (instructors only)' })
+  @ApiResponse({ status: 201, description: 'Video asset created with signed preview URL' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @ApiResponse({ status: 413, description: 'Video file exceeds the 100 MB size limit' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  async uploadVideoMessage(
+    @UploadedFile() file: { originalname?: string; mimetype?: string; size?: number } | undefined,
+    @Body() data: { lessonId?: string },
+    @CurrentUser() user: { id: string },
+  ) {
+    if (!file) {
+      throw new BadRequestException('A video file is required in the "video" field.');
+    }
+
+    const fileSize = file.size ?? 0;
+    if (fileSize > VIDEO_MAX_BYTES) {
+      throw new PayloadTooLargeException(
+        `Video file exceeds the 100 MB size limit (received ${(fileSize / 1024 / 1024).toFixed(2)} MB).`,
+      );
+    }
+
+    const mimeType = file.mimetype ?? 'video/mp4';
+    if (!VIDEO_MIME_TYPES.has(mimeType)) {
+      throw new BadRequestException(
+        `Unsupported video MIME type "${mimeType}". Allowed types: ${[...VIDEO_MIME_TYPES].join(', ')}`,
+      );
+    }
+
+    const asset = await this.cdnService.uploadAsset({
+      lessonId: data.lessonId,
+      fileName: file.originalname ?? 'video',
+      originalName: file.originalname ?? 'video',
+      mimeType,
+      contentType: ContentType.VIDEO,
+      fileSize,
+      uploadedByUserId: user.id,
+      isPrivate: true,
+    });
+
+    const signedUrl = await this.cdnService.generateSignedUrl(asset.id, 60);
+    return { ...asset, signedUrl };
   }
 
   @Get(':assetId/signed-url')
