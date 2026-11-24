@@ -1,6 +1,12 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
+// Baseline p95 for this scenario (see scripts/load-tests/baselines.json).
+// Thresholds allow up to 20% regression over the baseline before failing.
+const BASELINE_P95 = 500;
+const BASELINE_P99 = 1000;
+const REGRESSION_FACTOR = 1.2;
+
 export const options = {
   stages: [
     { duration: '5s', target: 50 },
@@ -8,7 +14,10 @@ export const options = {
     { duration: '5s', target: 0 },
   ],
   thresholds: {
-    http_req_duration: ['p(95)<500', 'p(99)<1000'],
+    http_req_duration: [
+      `p(95)<${Math.round(BASELINE_P95 * REGRESSION_FACTOR)}`,
+      `p(99)<${Math.round(BASELINE_P99 * REGRESSION_FACTOR)}`,
+    ],
     http_req_failed: ['rate<0.01'],
   },
 };

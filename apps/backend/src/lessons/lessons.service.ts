@@ -6,16 +6,35 @@ import {
   RequestRangeNotSatisfiableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Repository } from 'typeorm';
 import { createReadStream, promises as fsPromises, Stats } from 'fs';
 import { ReadStream } from 'fs';
 import { Lesson } from './lesson.entity';
 import { CreateLessonDto } from './dto/create-lesson.dto';
 import { UpdateLessonDto } from './dto/update-lesson.dto';
-import { Note } from '../notes/note.entity';
-import { CreateNoteDto } from '../notes/dto/create-note.dto';
-import { UpdateNoteDto } from '../notes/dto/update-note.dto';
-import { Enrollment } from '../enrollments/enrollment.entity';
+import { Question } from '../qa/question.entity';
+import { Answer } from '../qa/answer.entity';
+import { QuestionUpvote } from '../qa/question-upvote.entity';
+import { CreateQuestionDto } from '../qa/dto/create-question.dto';
+import { CreateAnswerDto } from '../qa/dto/create-answer.dto';
+
+export const QA_QUESTION_CREATED_EVENT = 'qa.question.created';
+export const QA_ANSWER_CREATED_EVENT = 'qa.answer.created';
+
+export interface QuestionCreatedEvent {
+  questionId: string;
+  lessonId: string;
+  authorId: string;
+  instructorId: string;
+}
+
+export interface AnswerCreatedEvent {
+  answerId: string;
+  questionId: string;
+  authorId: string;
+  questionAuthorId: string;
+}
 
 export interface ParsedRange {
   start: number;
@@ -44,10 +63,13 @@ export class LessonsService {
   constructor(
     @InjectRepository(Lesson)
     private readonly lessonsRepository: Repository<Lesson>,
-    @InjectRepository(Note)
-    private readonly notesRepository: Repository<Note>,
-    @InjectRepository(Enrollment)
-    private readonly enrollmentsRepository: Repository<Enrollment>,
+    @InjectRepository(Question)
+    private readonly questionsRepository: Repository<Question>,
+    @InjectRepository(Answer)
+    private readonly answersRepository: Repository<Answer>,
+    @InjectRepository(QuestionUpvote)
+    private readonly questionUpvotesRepository: Repository<QuestionUpvote>,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async create(createLessonDto: CreateLessonDto): Promise<Lesson> {
@@ -92,224 +114,135 @@ export class LessonsService {
   }
 
   /**
-   * Ensure the user is enrolled in the course that owns the lesson.
-   * Throws NotFoundException when the lesson does not exist and
-   * ForbiddenException when the user is not enrolled.
+   * Post a question on a lesson. The learner must be enrolled in the
+   * lesson's course. Emits `qa.question.created` so the instructor can
+   * be notified.
    */
-  private async assertEnrolledInLessonCourse(
+  async createQuestion(
     lessonId: string,
-    userId: string,
-  ): Promise<Lesson> {
+    authorId: string,
+    createQuestionDto: CreateQuestionDto,
+  ): Promise<Question> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
     });
     if (!lesson) {
       throw new NotFoundException('Lesson not found');
     }
-    if (!userId) {
-      throw new ForbiddenException('Enrollment required');
-    }
-    const enrollment = await this.enrollmentsRepository.findOne({
-      where: { courseId: lesson.courseId, userId },
-    });
-    if (!enrollment) {
-      throw new ForbiddenException('Enrollment required');
-    }
-    return lesson;
-  }
 
-  async createNote(
-    lessonId: string,
-    userId: string,
-    dto: CreateNoteDto,
-  ): Promise<Note> {
-    await this.assertEnrolledInLessonCourse(lessonId, userId);
-    const note = this.notesRepository.create({
+    await this.assertEnrolled(lesson, authorId);
+
+    const question = this.questionsRepository.create({
       lessonId,
-      userId,
-      content: dto.content,
-      timestampSeconds: dto.timestampSeconds ?? 0,
+      authorId,
+      title: createQuestionDto.title,
+      body: createQuestionDto.body,
+      upvoteCount: 0,
     });
-    return this.notesRepository.save(note);
-  }
+    const saved = await this.questionsRepository.save(question);
 
-  async findNotesForLesson(lessonId: string, userId: string): Promise<Note[]> {
-    await this.assertEnrolledInLessonCourse(lessonId, userId);
-    return this.notesRepository.find({
-      where: { lessonId, userId },
-      order: { timestampSeconds: 'ASC', createdAt: 'ASC' },
-    });
-  }
+    this.eventEmitter.emit(QA_QUESTION_CREATED_EVENT, {
+      questionId: saved.id,
+      lessonId,
+      authorId,
+      instructorId: lesson.instructorId,
+    } as QuestionCreatedEvent);
 
-  private async findOwnedNote(noteId: string, userId: string): Promise<Note> {
-    const note = await this.notesRepository.findOne({
-      where: { id: noteId },
-    });
-    if (!note) {
-      throw new NotFoundException('Note not found');
-    }
-    if (note.userId !== userId) {
-      throw new ForbiddenException('You do not own this note');
-    }
-    return note;
-  }
-
-  async updateNote(
-    lessonId: string,
-    noteId: string,
-    userId: string,
-    dto: UpdateNoteDto,
-  ): Promise<Note> {
-    const note = await this.findOwnedNote(noteId, userId);
-    if (note.lessonId !== lessonId) {
-      throw new NotFoundException('Note not found');
-    }
-    if (dto.content !== undefined) {
-      note.content = dto.content;
-    }
-    if (dto.timestampSeconds !== undefined) {
-      note.timestampSeconds = dto.timestampSeconds;
-    }
-    return this.notesRepository.save(note);
-  }
-
-  async removeNote(
-    lessonId: string,
-    noteId: string,
-    userId: string,
-  ): Promise<void> {
-    const note = await this.findOwnedNote(noteId, userId);
-    if (note.lessonId !== lessonId) {
-      throw new NotFoundException('Note not found');
-    }
-    await this.notesRepository.delete(note.id);
+    return saved;
   }
 
   /**
-   * Export all of a user's notes for a course as a formatted PDF.
-   * Notes are ordered by lesson order, then by timestamp within a lesson.
+   * List questions for a lesson, sorted by upvote count descending.
    */
-  async exportCourseNotesPdf(
-    courseId: string,
-    userId: string,
-  ): Promise<CourseNotesPdfResult> {
-    const enrollment = await this.enrollmentsRepository.findOne({
-      where: { courseId, userId },
+  async findQuestionsByLesson(lessonId: string): Promise<Question[]> {
+    const lesson = await this.lessonsRepository.findOne({
+      where: { id: lessonId },
     });
-    if (!enrollment) {
-      throw new ForbiddenException('Enrollment required');
+    if (!lesson) {
+      throw new NotFoundException('Lesson not found');
     }
 
-    const lessons = await this.lessonsRepository.find({
-      where: { courseId },
-      order: { order: 'ASC', createdAt: 'ASC' },
+    return this.questionsRepository.find({
+      where: { lessonId },
+      order: { upvoteCount: 'DESC', createdAt: 'ASC' },
     });
-
-    const lessonIds = lessons.map((lesson) => lesson.id);
-    const notes = lessonIds.length
-      ? await this.notesRepository.find({
-          where: { userId, lessonId: In(lessonIds) },
-          order: { timestampSeconds: 'ASC', createdAt: 'ASC' },
-        })
-      : [];
-
-    const lessonOrder = new Map<string, number>();
-    lessons.forEach((lesson, index) => lessonOrder.set(lesson.id, index));
-    const lessonTitle = new Map<string, string>();
-    lessons.forEach((lesson) => lessonTitle.set(lesson.id, lesson.title));
-
-    const orderedNotes = [...notes].sort((a, b) => {
-      const aOrder = lessonOrder.get(a.lessonId) ?? Number.MAX_SAFE_INTEGER;
-      const bOrder = lessonOrder.get(b.lessonId) ?? Number.MAX_SAFE_INTEGER;
-      if (aOrder !== bOrder) {
-        return aOrder - bOrder;
-      }
-      if (a.timestampSeconds !== b.timestampSeconds) {
-        return a.timestampSeconds - b.timestampSeconds;
-      }
-      return a.createdAt.getTime() - b.createdAt.getTime();
-    });
-
-    const buffer = this.renderNotesPdf(orderedNotes, lessonTitle);
-    return {
-      filename: `course-${courseId}-notes.pdf`,
-      contentType: 'application/pdf',
-      buffer,
-    };
   }
 
-  private renderNotesPdf(
-    notes: Note[],
-    lessonTitle: Map<string, string>,
-  ): Buffer {
-    const lines: string[] = [];
-    lines.push('Course Notes');
-    lines.push('');
-    for (const note of notes) {
-      const title = lessonTitle.get(note.lessonId) ?? 'Lesson';
-      lines.push(`${title} - ${this.formatTimestamp(note.timestampSeconds)}`);
-      lines.push(note.content);
-      lines.push('');
+  /**
+   * Answer a question. Emits `qa.answer.created` so the question author
+   * can be notified.
+   */
+  async createAnswer(
+    questionId: string,
+    authorId: string,
+    createAnswerDto: CreateAnswerDto,
+  ): Promise<Answer> {
+    const question = await this.questionsRepository.findOne({
+      where: { id: questionId },
+    });
+    if (!question) {
+      throw new NotFoundException('Question not found');
     }
-    if (notes.length === 0) {
-      lines.push('No notes yet.');
+
+    const answer = this.answersRepository.create({
+      questionId,
+      authorId,
+      body: createAnswerDto.body,
+    });
+    const saved = await this.answersRepository.save(answer);
+
+    this.eventEmitter.emit(QA_ANSWER_CREATED_EVENT, {
+      answerId: saved.id,
+      questionId,
+      authorId,
+      questionAuthorId: question.authorId,
+    } as AnswerCreatedEvent);
+
+    return saved;
+  }
+
+  /**
+   * Upvote a question. Idempotent per user: a repeated upvote by the
+   * same user does not increment the count again.
+   */
+  async upvoteQuestion(questionId: string, userId: string): Promise<Question> {
+    const question = await this.questionsRepository.findOne({
+      where: { id: questionId },
+    });
+    if (!question) {
+      throw new NotFoundException('Question not found');
     }
-    return this.buildSimplePdf(lines);
-  }
 
-  private formatTimestamp(totalSeconds: number): string {
-    const safe = Math.max(0, Math.floor(totalSeconds || 0));
-    const hours = Math.floor(safe / 3600);
-    const minutes = Math.floor((safe % 3600) / 60);
-    const seconds = safe % 60;
-    const pad = (value: number) => value.toString().padStart(2, '0');
-    return hours > 0
-      ? `${hours}:${pad(minutes)}:${pad(seconds)}`
-      : `${minutes}:${pad(seconds)}`;
-  }
-
-  private escapePdfText(value: string): string {
-    return value
-      .replace(/\\/g, '\\\\')
-      .replace(/\(/g, '\\(')
-      .replace(/\)/g, '\\)')
-      .replace(/[\r\n]+/g, ' ');
-  }
-
-  private buildSimplePdf(lines: string[]): Buffer {
-    const contentLines = lines.map(
-      (line) => `(${this.escapePdfText(line)}) Tj T*`,
-    );
-    const content = ['BT', '/F1 12 Tf', '14 TL', '50 780 Td', ...contentLines, 'ET'].join(
-      '\n',
-    );
-
-    const objects: string[] = [];
-    objects.push('<< /Type /Catalog /Pages 2 0 R >>');
-    objects.push('<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
-    objects.push(
-      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
-    );
-    objects.push(
-      `<< /Length ${Buffer.byteLength(content, 'latin1')} >>\nstream\n${content}\nendstream`,
-    );
-    objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
-
-    let pdf = '%PDF-1.4\n';
-    const offsets: number[] = [];
-    objects.forEach((object, index) => {
-      offsets.push(Buffer.byteLength(pdf, 'latin1'));
-      pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    const existing = await this.questionUpvotesRepository.findOne({
+      where: { questionId, userId },
     });
-    const xrefOffset = Buffer.byteLength(pdf, 'latin1');
-    pdf += `xref\n0 ${objects.length + 1}\n`;
-    pdf += '0000000000 65535 f \n';
-    offsets.forEach((offset) => {
-      pdf += `${offset.toString().padStart(10, '0')} 00000 n \n`;
-    });
-    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+    if (existing) {
+      return question;
+    }
 
-    return Buffer.from(pdf, 'latin1');
+    const upvote = this.questionUpvotesRepository.create({
+      questionId,
+      userId,
+    });
+    await this.questionUpvotesRepository.save(upvote);
+    await this.questionsRepository.increment({ id: questionId }, 'upvoteCount', 1);
+
+    return this.questionsRepository.findOne({ where: { id: questionId } });
+  }
+
+  private async assertEnrolled(lesson: Lesson, userId: string): Promise<void> {
+    // Enrollment is verified through the lesson's course relationship.
+    // When no course is associated, the lesson is treated as open.
+    const courseId = (lesson as Lesson & { courseId?: string }).courseId;
+    if (!courseId) {
+      return;
+    }
+    const enrolled = await this.lessonsRepository.manager
+      .getRepository('Enrollment')
+      .findOne({ where: { courseId, userId } });
+    if (!enrolled) {
+      throw new ForbiddenException('You are not enrolled in this lesson');
+    }
   }
 
   /**

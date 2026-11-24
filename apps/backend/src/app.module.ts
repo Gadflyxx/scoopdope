@@ -17,8 +17,9 @@ import { Bundle } from './bundles/bundle.entity';
 import { BundleCourse } from './bundles/bundle-course.entity';
 import { Payment } from './payments/payment.entity';
 import { SupportTicketAttachment } from './support-tickets/support-ticket-attachment.entity';
-import { LessonResource } from './downloads/lesson-resource.entity';
-import { Note } from './notes/note.entity';
+import { Question } from './qa/question.entity';
+import { Answer } from './qa/answer.entity';
+import { QuestionUpvote } from './qa/question-upvote.entity';
 
 // ── Modules ─────────────────────────────────────────────────────────────────────
 
@@ -39,9 +40,9 @@ import { LiveSessionsModule } from './live-sessions/live-sessions.module';
 import { PaymentsModule } from './payments/payments.module';
 import { RewardsModule } from './rewards/rewards.module';
 import { SupportTicketsModule } from './support-tickets/support-tickets.module';
-import { InstructorAnalyticsModule } from './instructor-analytics/instructor-analytics.module';
-import { NotesModule } from './notes/notes.module';
+import { QaModule } from './qa/qa.module';
 import { HealthModule } from './health/health.module';
+import { MessagesModule } from './messages/messages.module';
 import * as redisStore from 'cache-manager-redis-store';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation.schema';
@@ -115,8 +116,9 @@ export class GracefulShutdownService implements OnApplicationShutdown {
           BundleCourse,
           Payment,
           SupportTicketAttachment,
-          LessonResource,
-          Note,
+          Question,
+          Answer,
+          QuestionUpvote,
         ],
         synchronize: configService.get('environment') !== 'production',
         logging: configService.get('environment') !== 'production',
@@ -160,8 +162,7 @@ export class GracefulShutdownService implements OnApplicationShutdown {
     PaymentsModule,
     RewardsModule,
     SupportTicketsModule,
-    InstructorAnalyticsModule,
-    NotesModule,
+    MessagesModule,
     RateLimitModule,
     ApiVersionModule,
     MonitoringModule,
