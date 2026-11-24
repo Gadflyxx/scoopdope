@@ -13,7 +13,7 @@ export const validationSchema = Joi.object({
   DATABASE_HOST: Joi.string().required(),
   DATABASE_PORT: Joi.number().default(5432),
   DATABASE_USER: Joi.string().required(),
-  DATABASE_PASSWORD: Joi.string().required(),
+  DATABASE_PASSWORD: Joi.string().min(1).required(),
   DATABASE_NAME: Joi.string().required(),
   DATABASE_POOL_MIN: Joi.number().integer().min(1).max(20).default(5),
   DB_POOL_MAX: Joi.number().integer().min(5).max(100).default(20),
@@ -21,7 +21,7 @@ export const validationSchema = Joi.object({
   DB_POOL_CONNECTION_TIMEOUT_MS: Joi.number().integer().min(100).default(2000),
 
   // JWT
-  JWT_SECRET: Joi.string().min(16).required(),
+  JWT_SECRET: Joi.string().min(32).required(),
 
   // Redis
   REDIS_URL: Joi.string().uri().optional(),
@@ -32,7 +32,7 @@ export const validationSchema = Joi.object({
 
   // Stellar
   STELLAR_NETWORK: Joi.string().valid('testnet', 'mainnet').default('testnet'),
-  STELLAR_SECRET_KEY: Joi.string().optional(),
+  STELLAR_SECRET_KEY: Joi.string().allow('').optional(),
   STELLAR_HORIZON_URL: Joi.string().uri().optional(),
   STELLAR_HEALTH_CRITICAL: Joi.boolean().default(true),
   SOROBAN_RPC_URL: Joi.string().uri().default('https://soroban-testnet.stellar.org'),
@@ -50,7 +50,7 @@ export const validationSchema = Joi.object({
   EMAIL_PORT: Joi.number().default(587),
   EMAIL_SECURE: Joi.boolean().default(false),
   EMAIL_USER: Joi.string().required(),
-  EMAIL_PASS: Joi.string().required(),
+  EMAIL_PASS: Joi.string().min(1).required(),
   EMAIL_FROM: Joi.string().default('"Scoopdope" <no-reply@Scoopdope.app>'),
   EMAIL_ENABLED: Joi.boolean().default(false),
 
@@ -68,8 +68,8 @@ export const validationSchema = Joi.object({
   CORS_MAX_AGE: Joi.number().integer().min(0).default(86400),
 
   // Google OAuth (optional)
-  GOOGLE_CLIENT_ID: Joi.string().optional(),
-  GOOGLE_CLIENT_SECRET: Joi.string().optional(),
+  GOOGLE_CLIENT_ID: Joi.string().allow('').optional(),
+  GOOGLE_CLIENT_SECRET: Joi.string().allow('').optional(),
   GOOGLE_CALLBACK_URL: Joi.string().uri().default('http://localhost:3000/auth/google/callback'),
 
   // Throttle
@@ -92,8 +92,8 @@ export const validationSchema = Joi.object({
   ELASTICSEARCH_API_KEY: Joi.string().allow('').default(''),
 
   // Stripe
-  STRIPE_SECRET_KEY: Joi.string().allow('').default(''),
-  STRIPE_WEBHOOK_SECRET: Joi.string().allow('').default(''),
+  STRIPE_SECRET_KEY: Joi.string().allow('').optional(),
+  STRIPE_WEBHOOK_SECRET: Joi.string().allow('').optional(),
   STRIPE_PRO_PRICE_ID: Joi.string().allow('').default(''),
   STRIPE_ENTERPRISE_PRICE_ID: Joi.string().allow('').default(''),
   STRIPE_SUBSCRIPTION_PRORATION_ENABLED: Joi.boolean().default(true),
@@ -113,16 +113,4 @@ export const validationSchema = Joi.object({
 
   // Survey
   SURVEY_PSEUDONYMIZATION_SECRET: Joi.string().min(32).required(),
-
-  // Admin IP allowlist (comma-separated list of IPs; empty disables the allowlist)
-  ADMIN_ALLOWED_IPS: Joi.string().allow('').default(''),
-
-  // Webhook delivery retries
-  WEBHOOK_RETRY_BACKOFF_MS: Joi.string()
-    .pattern(/^\s*\d+\s*(,\s*\d+\s*)*$/)
-    .default('60000,300000,900000,3600000,14400000'),
-  WEBHOOK_MAX_ATTEMPTS: Joi.number().integer().min(1).default(5),
-
-  // Feature flags
-  FEATURE_FLAG_SEED_ENABLED: Joi.boolean().default(true),
-});
+}).unknown(true);

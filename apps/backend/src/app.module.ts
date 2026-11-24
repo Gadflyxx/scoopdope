@@ -17,9 +17,9 @@ import { Bundle } from './bundles/bundle.entity';
 import { BundleCourse } from './bundles/bundle-course.entity';
 import { Payment } from './payments/payment.entity';
 import { SupportTicketAttachment } from './support-tickets/support-ticket-attachment.entity';
-import { Referral } from './referrals/referral.entity';
-import { WebhookDelivery } from './webhooks/webhook-delivery.entity';
-import { FeatureFlag } from './feature-flags/feature-flag.entity';
+import { Question } from './qa/question.entity';
+import { Answer } from './qa/answer.entity';
+import { QuestionUpvote } from './qa/question-upvote.entity';
 
 // ── Modules ─────────────────────────────────────────────────────────────────────
 
@@ -40,10 +40,9 @@ import { LiveSessionsModule } from './live-sessions/live-sessions.module';
 import { PaymentsModule } from './payments/payments.module';
 import { RewardsModule } from './rewards/rewards.module';
 import { SupportTicketsModule } from './support-tickets/support-tickets.module';
-import { ReferralsModule } from './referrals/referrals.module';
-import { WebhooksDeliveriesModule } from './webhooks/webhooks-deliveries.module';
-import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
+import { QaModule } from './qa/qa.module';
 import { HealthModule } from './health/health.module';
+import { MessagesModule } from './messages/messages.module';
 import * as redisStore from 'cache-manager-redis-store';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation.schema';
@@ -118,9 +117,9 @@ export class GracefulShutdownService implements OnApplicationShutdown {
           BundleCourse,
           Payment,
           SupportTicketAttachment,
-          Referral,
-          WebhookDelivery,
-          FeatureFlag,
+          Question,
+          Answer,
+          QuestionUpvote,
         ],
         synchronize: configService.get('environment') !== 'production',
         logging: configService.get('environment') !== 'production',
@@ -164,9 +163,7 @@ export class GracefulShutdownService implements OnApplicationShutdown {
     PaymentsModule,
     RewardsModule,
     SupportTicketsModule,
-    ReferralsModule,
-    WebhooksDeliveriesModule,
-    FeatureFlagsModule,
+    MessagesModule,
     RateLimitModule,
     ApiVersionModule,
     MonitoringModule,

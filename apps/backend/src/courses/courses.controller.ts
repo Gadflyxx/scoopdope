@@ -381,6 +381,31 @@ export class CoursesController {
     return course;
   }
 
+  @Patch(':id/submit-review')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'instructor')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Submit a draft course for moderation review' })
+  @ApiResponse({ status: 200, description: 'Course submitted for review' })
+  @ApiResponse({ status: 400, description: 'Course is not in a submittable state' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
+  @ApiResponse({ status: 404, description: 'Course not found' })
+  async submitForReview(
+    @Param('id') id: string,
+    @Request() req: { user?: { id: string; role: string } },
+  ) {
+    const course = await this.coursesService.submitForReview(id, req.user);
+    await this.auditService.log({
+      userId: req.user?.id,
+      action: AuditAction.COURSE_UPDATE,
+      entityType: 'course',
+      entityId: course?.id,
+      metadata: { status: CourseStatus.UNDER_REVIEW },
+    });
+    return course;
+  }
+
   @Patch(':id/unpublish')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'instructor')

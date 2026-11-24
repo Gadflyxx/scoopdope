@@ -10,6 +10,14 @@ import { ChevronLeft, ChevronRight, Layout, BookOpen, TrendingUp } from 'lucide-
 import { Button } from '@/components/ui/Button';
 import { useVideoShortcuts } from '@/hooks/useVideoShortcuts';
 import { useSyncProgress } from '@/hooks/useSyncProgress';
+import { WifiOff } from 'lucide-react';
+import {
+  cacheLesson,
+  getCachedLesson,
+  queueOfflineAction,
+  flushOfflineQueue,
+  registerBackgroundSync,
+} from '@/lib/offline';
 
 export default function LessonPage() {
   const params = useParams();
@@ -22,6 +30,7 @@ export default function LessonPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [sidebarTab, setSidebarTab] = useState<'transcript' | 'notes' | 'progress'>('transcript');
   const [isCompleting, setIsCompleting] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const sessionIdRef = useRef<string | null>(null);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -30,12 +39,57 @@ export default function LessonPage() {
 
   useVideoShortcuts(videoRef);
 
+  // Track connectivity and flush queued offline actions when back online.
+  useEffect(() => {
+    if (typeof navigator === 'undefined') return;
+    setIsOffline(!navigator.onLine);
+
+    const handleOnline = () => {
+      setIsOffline(false);
+      flushOfflineQueue().catch(() => {});
+    };
+    const handleOffline = () => setIsOffline(true);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   useEffect(() => {
     if (!lessonId) return;
-    api.get(`/lessons/${lessonId}`)
-      .then(({ data }) => setLesson(data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    let cancelled = false;
+
+    const loadLesson = async () => {
+      // Serve cached lesson content immediately when offline (or as a fallback).
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const cached = await getCachedLesson(lessonId as string).catch(() => null);
+        if (!cancelled && cached) {
+          setLesson(cached);
+          setLoading(false);
+          return;
+        }
+      }
+
+      try {
+        const { data } = await api.get(`/lessons/${lessonId}`);
+        if (cancelled) return;
+        setLesson(data);
+        cacheLesson(lessonId as string, data).catch(() => {});
+      } catch {
+        const cached = await getCachedLesson(lessonId as string).catch(() => null);
+        if (!cancelled && cached) setLesson(cached);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    loadLesson();
+    return () => {
+      cancelled = true;
+    };
   }, [lessonId]);
 
   // Study session heartbeat: start a session, then heartbeat every 30s while the tab is visible.
@@ -136,7 +190,17 @@ export default function LessonPage() {
     if (!courseId || !lessonId) return;
     setIsCompleting(true);
     try {
-      await recordProgress(courseId, lessonId, 100);
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        await queueOfflineAction({
+          type: 'progress',
+          courseId: courseId as string,
+          lessonId: lessonId as string,
+          progress: 100,
+        });
+        registerBackgroundSync().catch(() => {});
+      } else {
+        await recordProgress(courseId, lessonId, 100);
+      }
       setLesson((prev: any) => ({ ...prev, completed: true }));
     } catch (error) {
       console.error('Failed to mark lesson as complete:', error);
@@ -150,6 +214,19 @@ export default function LessonPage() {
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col">
+      {/* Offline indicator banner */}
+      {isOffline && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="bg-amber-500 text-white text-sm px-4 py-2 flex items-center justify-center gap-2"
+          data-testid="offline-banner"
+        >
+          <WifiOff className="w-4 h-4" />
+          You&apos;re offline. Cached lesson content is available; notes and progress will sync when you reconnect.
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-white dark:bg-gray-900 border-b dark:border-gray-800 p-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -244,6 +321,7 @@ export default function LessonPage() {
                 lessonTitle={lesson.title}
                 currentTime={currentTime}
                 onSeek={handleSeek}
+                isOffline={isOffline}
               />
             ) : (
               <div className="p-4 overflow-y-auto h-full">

@@ -149,6 +149,8 @@ scoopdope/
 
 ## Getting Started
 
+> **New to the project?** Start with the [Developer Onboarding Guide](./docs/developer-onboarding.md) — it covers prerequisites, local setup, environment variables, running services and tests, and common troubleshooting, with a quick-start sequence to get you from a clean machine to a running local stack.
+
 Follow these steps to run scoopdope locally.
 
 ### Prerequisites

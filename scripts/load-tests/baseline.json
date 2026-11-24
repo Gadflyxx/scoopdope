@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "environment": "staging",
+  "recordedAt": "2024-01-15T00:00:00.000Z",
+  "regressionThresholdPercent": 20,
+  "scenarios": {
+    "auth-login": {
+      "p95": 450,
+      "unit": "ms",
+      "description": "Authentication login flow"
+    },
+    "courses": {
+      "p95": 600,
+      "unit": "ms",
+      "description": "Course listing and retrieval"
+    },
+    "enrollment": {
+      "p95": 750,
+      "unit": "ms",
+      "description": "Course enrollment operations"
+    },
+    "high-concurrency": {
+      "p95": 1200,
+      "unit": "ms",
+      "description": "High concurrency mixed workload"
+    },
+    "performance-regression": {
+      "p95": 900,
+      "unit": "ms",
+      "description": "Performance regression detection scenario"
+    },
+    "stellar-balance": {
+      "p95": 500,
+      "unit": "ms",
+      "description": "Stellar balance queries"
+    },
+    "stress-test": {
+      "p95": 2000,
+      "unit": "ms",
+      "description": "Stress test under peak load"
+    },
+    "user-journey": {
+      "p95": 1500,
+      "unit": "ms",
+      "description": "End-to-end user journey"
+    },
+    "video-streaming": {
+      "p95": 800,
+      "unit": "ms",
+      "description": "Video streaming metadata and playback"
+    }
+  }
+}
