@@ -52,6 +52,13 @@ HEALTH_CHECK_MAX_RETRIES="${HEALTH_CHECK_MAX_RETRIES:-12}"
 SMOKE_TEST_TIMEOUT="${SMOKE_TEST_TIMEOUT:-10}"       # per-request timeout in seconds
 TRAFFIC_STATE_FILE="${TRAFFIC_STATE_FILE:-${PROJECT_ROOT}/scripts/.traffic-target}"
 
+# Database migration configuration
+MIGRATION_COMMAND="${MIGRATION_COMMAND:-npm run migration:run}"
+MIGRATION_STATUS_COMMAND="${MIGRATION_STATUS_COMMAND:-npm run migration:status}"
+MIGRATION_TIMEOUT="${MIGRATION_TIMEOUT:-300}"        # seconds before migration is considered hung
+PREVIOUS_RELEASE_FILE="${PREVIOUS_RELEASE_FILE:-${PROJECT_ROOT}/scripts/.previous-release}"
+=======
+
 # ============================================================================
 # Helper Functions
 # ============================================================================
@@ -358,8 +365,127 @@ log_deployment_history() {
 }
 
 # ============================================================================
+# Database Migration Functions
+# ============================================================================
+
+# Read the previously deployed release/tag (used for rollback)
+get_previous_release() {
+    if [ -f "$PREVIOUS_RELEASE_FILE" ]; then
+        cat "$PREVIOUS_RELEASE_FILE"
+    else
+        echo ""
+    fi
+}
+
+# Record the current release so a future deployment can roll back to it
+record_current_release() {
+    local current_release=""
+
+    if command -v git &> /dev/null && [ -d "${PROJECT_ROOT}/.git" ]; then
+        current_release=$(cd "$PROJECT_ROOT" && git describe --tags --always 2>/dev/null || echo "")
+    fi
+
+    if [ -z "$current_release" ]; then
+        current_release="${RELEASE_TAG:-unknown}"
+    fi
+
+    mkdir -p "$(dirname "$PREVIOUS_RELEASE_FILE")"
+    echo "$current_release" > "$PREVIOUS_RELEASE_FILE"
+    log_info "Recorded current release for rollback: $current_release"
+}
+
+# Run pending TypeORM migrations before the application starts
+run_migrations() {
+    log_info "Running pending database migrations..."
+
+    if [ -z "$MIGRATION_COMMAND" ]; then
+        log_error "MIGRATION_COMMAND is not set; cannot run migrations"
+        return 1
+    fi
+
+    local migration_output
+    local migration_status=0
+
+    if command -v timeout &> /dev/null; then
+        migration_output=$(timeout "$MIGRATION_TIMEOUT" bash -c "$MIGRATION_COMMAND" 2>&1) || migration_status=$?
+    else
+        migration_output=$(bash -c "$MIGRATION_COMMAND" 2>&1) || migration_status=$?
+    fi
+
+    echo "$migration_output"
+
+    if [ "$migration_status" -ne 0 ]; then
+        if [ "$migration_status" -eq 124 ]; then
+            log_error "Migration timed out after ${MIGRATION_TIMEOUT}s"
+        else
+            log_error "Migration failed (exit code: ${migration_status})"
+        fi
+        return 1
+    fi
+
+    log_success "Database migrations applied successfully"
+    return 0
+}
+
+# Check migration status and warn/alert if pending migrations remain
+check_migration_status() {
+    log_info "Checking migration status..."
+
+    if [ -z "$MIGRATION_STATUS_COMMAND" ]; then
+        log_warning "MIGRATION_STATUS_COMMAND is not set; skipping migration status check"
+        return 0
+    fi
+
+    local status_output
+    local status_code=0
+
+    status_output=$(bash -c "$MIGRATION_STATUS_COMMAND" 2>&1) || status_code=$?
+    echo "$status_output"
+
+    if [ "$status_code" -ne 0 ]; then
+        log_error "Migration status check failed (exit code: ${status_code})"
+        return 1
+    fi
+
+    if echo "$status_output" | grep -qiE '\[X\][[:space:]]*[0-9]+[[:space:]]+migrations?[[:space:]]+(are|is)[[:space:]]+pending'; then
+        log_error "Pending migrations detected in ${NETWORK:-production}"
+        return 1
+    fi
+
+    log_success "No pending migrations"
+    return 0
+}
+
+# Roll back to the previous release after a migration failure.
+# The running service is left untouched (no traffic switch, no restart).
+rollback_release() {
+    local previous_release="$1"
+
+    log_warning "Rolling back to previous release: ${previous_release:-<none recorded>}"
+
+    if [ -z "$previous_release" ] || [ "$previous_release" = "unknown" ]; then
+        log_error "No previous release recorded; automatic rollback skipped - manual intervention required"
+        return 1
+    fi
+
+    if ! command -v git &> /dev/null || [ ! -d "${PROJECT_ROOT}/.git" ]; then
+        log_error "git not available; cannot roll back to ${previous_release} - manual intervention required"
+        return 1
+    fi
+
+    if ! (cd "$PROJECT_ROOT" && git checkout --force "$previous_release" 2>&1); then
+        log_error "Failed to check out previous release ${previous_release} - manual intervention required"
+        return 1
+    fi
+
+    log_success "Rolled back to previous release: ${previous_release}"
+    return 0
+}
+
+# ============================================================================
 # Blue-Green Deployment Functions
 # ============================================================================
+=======
 
 # Read the currently active traffic target (blue or green)
 get_active_target() {
@@ -584,6 +710,30 @@ main() {
     validate_env
     echo ""
     
+    # Record current release so a failed migration can roll back to it
+    record_current_release
+    echo ""
+
+    # Run pending database migrations before starting the application.
+    # On failure, roll back to the previous release and halt without
+    # touching the running service (no traffic switch, no restart).
+    if ! run_migrations; then
+        log_error "Migration failed; halting deployment before application start"
+        rollback_release "$(get_previous_release)" || true
+        log_error "Deployment aborted due to migration failure"
+        exit 1
+    fi
+    echo ""
+
+    # Verify no migrations remain pending
+    if ! check_migration_status; then
+        log_error "Migration status check failed; halting deployment before application start"
+        rollback_release "$(get_previous_release)" || true
+        log_error "Deployment aborted due to pending migrations"
+        exit 1
+    fi
+    echo ""
+
     # Build contract
     build_contract
     echo ""

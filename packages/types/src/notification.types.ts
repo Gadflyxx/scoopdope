@@ -14,8 +14,7 @@ export type NotificationType =
   | 'reminder.due'
   | 'forum.reply'
   | 'moderation.action'
-  | 'qa.question'
-  | 'qa.answer';
+  | 'message.video';
 
 /**
  * A notification record.

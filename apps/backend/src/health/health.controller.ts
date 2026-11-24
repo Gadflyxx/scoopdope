@@ -177,4 +177,48 @@ export class HealthController {
   async checkVersion() {
     return this.healthService.getSystemInfo();
   }
+
+  /**
+   * GET /health/migrations
+   *
+   * Migration status endpoint used by the health-check workflow to alert when
+   * pending migrations are detected in production.
+   */
+  @Get('migrations')
+  @ApiOperation({
+    summary: 'Migration status',
+    description:
+      'Returns the status of database migrations: executed and pending migrations. ' +
+      'Used by the health-check workflow to alert when pending migrations exist in production.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Migration status retrieved',
+    schema: {
+      example: {
+        status: 'ok',
+        executed: ['1700000000000-InitialSchema'],
+        pending: [],
+        pendingCount: 0,
+      },
+    },
+  })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async checkMigrations() {
+    this.logger.debug('Performing migration status check', {
+      context: 'HealthController',
+    });
+
+    const result = await this.healthService.getMigrationStatus();
+
+    if (result.pendingCount > 0) {
+      this.logger.warn('Pending database migrations detected', {
+        context: 'HealthController',
+        pending: result.pending,
+        pendingCount: result.pendingCount,
+      });
+    }
+
+    return result;
+  }
 }

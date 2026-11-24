@@ -17,11 +17,31 @@ Use lowercase words separated by hyphens, and reference the issue number when on
 
 ## Code style
 
-This repository enforces a consistent code style across all files using `.editorconfig` and Prettier:
+This repository enforces a consistent code style across all files using `.editorconfig`, ESLint, and Prettier:
 
 - `.editorconfig` configures editor indentation (2 spaces for JS/TS/JSON/YAML, 4 spaces for Rust, tabs for Makefile), UTF-8 charset, LF line endings, and trailing newline insertion.
-- Prettier is configured via `.prettierrc` (single quotes, 2 spaces indentation, 100 column print width, trailing commas).
-- Run formatting checks via `npm run format:check` and auto-format files using `npm run format`.
+- ESLint is configured via `eslint.config.js` and checks JavaScript/TypeScript sources for lint errors.
+- Prettier is configured via `.prettierrc` (single quotes, 2 spaces indentation, 100 column print width, trailing commas) and ignores files listed in `.prettierignore`.
+
+### Local linting and formatting
+
+This project uses `pnpm` as its package manager. Install dependencies first:
+
+```bash
+pnpm install
+```
+
+Then use the following scripts:
+
+- `pnpm lint` — runs ESLint over the codebase and reports any lint errors.
+- `pnpm format` — auto-formats all files with Prettier, writing changes in place.
+- `pnpm format:check` — checks formatting with Prettier without writing changes; exits non-zero if any file differs.
+
+Before opening a pull request, run `pnpm lint` and `pnpm format:check` locally and fix any reported issues (use `pnpm format` to auto-fix formatting). CI runs both checks and **fails the build if any ESLint error or Prettier formatting diff is detected**, so commits must be clean before they can be merged.
+
+### Pre-commit hook
+
+The repository uses [husky](https://typicode.github.io/husky/) and [lint-staged](https://github.com/lint-staged/lint-staged) to run checks automatically before each commit. The hook is installed by `pnpm install` (via the `prepare` script) and runs ESLint and Prettier on staged files only. If a staged file has a lint error or a formatting diff, the commit is blocked — fix the issues (or run `pnpm format`) and commit again.
 
 ## Commit message conventions
 
