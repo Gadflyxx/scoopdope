@@ -105,6 +105,54 @@ export default function LessonPage() {
     };
   }, [lessonId]);
 
+  useEffect(() => {
+    if (!lessonId) return;
+    api.get(`/lessons/${lessonId}/resources`)
+      .then(({ data }) => setResources(Array.isArray(data) ? data : data?.resources ?? []))
+      .catch(() => setResources([]));
+  }, [lessonId]);
+
+  const handleDownloadResource = async (resource: any) => {
+    if (!lessonId || !resource?.id) return;
+    setDownloadingId(resource.id);
+    try {
+      const { data } = await api.get(
+        `/lessons/${lessonId}/resources/${resource.id}/download`
+      );
+      const url = data?.url ?? data?.signedUrl ?? data?.downloadUrl;
+      if (url) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+    } catch (error) {
+      console.error('Failed to download resource:', error);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handleExportNotes = async () => {
+    if (!courseId) return;
+    setIsExportingNotes(true);
+    try {
+      const response = await api.get(`/courses/${courseId}/notes/export`, {
+        responseType: 'blob',
+      });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `course-${courseId}-notes.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to export notes:', error);
+    } finally {
+      setIsExportingNotes(false);
+    }
+  };
+
   // Study session heartbeat: start a session, then heartbeat every 30s while the tab is visible.
   useEffect(() => {
     if (!lessonId) return;
@@ -294,6 +342,41 @@ export default function LessonPage() {
                 {lesson.content}
               </div>
             </div>
+
+            {resources.length > 0 && (
+              <div className="space-y-3">
+                <h2 className="text-2xl font-bold">Downloadable Resources</h2>
+                <ul className="divide-y divide-gray-200 dark:divide-gray-800 rounded-xl border dark:border-gray-800 bg-white dark:bg-gray-900">
+                  {resources.map((resource: any) => (
+                    <li
+                      key={resource.id}
+                      className="flex items-center justify-between gap-4 p-4"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <FileText className="w-5 h-5 text-gray-400 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{resource.filename}</p>
+                          {typeof resource.sizeBytes === 'number' && (
+                            <p className="text-xs text-gray-500">
+                              {(resource.sizeBytes / 1024).toFixed(1)} KB
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDownloadResource(resource)}
+                        disabled={downloadingId === resource.id}
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        {downloadingId === resource.id ? 'Preparing...' : 'Download'}
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
 

@@ -52,6 +52,12 @@ export interface VideoStreamResult {
   stream: ReadStream;
 }
 
+export interface CourseNotesPdfResult {
+  filename: string;
+  contentType: string;
+  buffer: Buffer;
+}
+
 @Injectable()
 export class LessonsService {
   constructor(
