@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -8,9 +8,19 @@ import { BatchQueueService } from './batch.queue.service';
 import { BatchController } from './batch.controller';
 import { UsersModule } from '../users/users.module';
 import { CoursesModule } from '../courses/courses.module';
+import { EnrollmentsModule } from '../enrollments/enrollments.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
-  imports: [ConfigModule, HttpModule, TypeOrmModule.forFeature([BatchJob]), UsersModule, CoursesModule],
+  imports: [
+    ConfigModule,
+    HttpModule,
+    TypeOrmModule.forFeature([BatchJob]),
+    UsersModule,
+    CoursesModule,
+    forwardRef(() => EnrollmentsModule),
+    EmailModule,
+  ],
   providers: [BatchService, BatchQueueService],
   controllers: [BatchController],
   exports: [BatchQueueService],

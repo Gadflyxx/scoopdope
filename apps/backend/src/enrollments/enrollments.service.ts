@@ -29,6 +29,12 @@ interface CachedCount {
   expiresAt: number;
 }
 
+/** Outcome of a single user/course pair within a batch enrollment job. */
+export type BatchEnrollmentItemResult =
+  | { status: 'enrolled'; enrollment: Enrollment }
+  | { status: 'skipped'; reason: string }
+  | { status: 'failed'; error: string };
+
 @Injectable()
 export class EnrollmentsService {
   private readonly logger = new Logger(EnrollmentsService.name);
@@ -164,6 +170,53 @@ export class EnrollmentsService {
     this.metrics.incrementEnrollment(courseId, 'all');
 
     return enrollment;
+  }
+
+  /**
+   * Attempt to enroll a single user in a single course without throwing.
+   *
+   * Used by the batch enrollment worker so that each user/course pair is
+   * attempted independently: an invalid user ID, a duplicate enrollment, a
+   * missing course or a failed prerequisite check is reported as a per-item
+   * error instead of aborting the whole batch.
+   *
+   * Returns `{ status: 'enrolled', enrollment }` on success, or
+   * `{ status: 'skipped', reason }` when the user is already enrolled, or
+   * `{ status: 'failed', error }` when the enrollment could not be created.
+   */
+  async enrollIfNotExists(
+    userId: string,
+    courseId: string,
+    adminOverride = false,
+  ): Promise<BatchEnrollmentItemResult> {
+    if (!userId || typeof userId !== 'string') {
+      return { status: 'failed', error: 'Invalid user ID' };
+    }
+    if (!courseId || typeof courseId !== 'string') {
+      return { status: 'failed', error: 'Invalid course ID' };
+    }
+
+    try {
+      const existing = await this.enrollmentRepository.findOne({
+        where: { userId, courseId },
+      });
+      if (existing) {
+        return { status: 'skipped', reason: 'Already enrolled in this course' };
+      }
+
+      const enrollment = await this.enroll(userId, courseId, adminOverride);
+      return { status: 'enrolled', enrollment };
+    } catch (error) {
+      if (error instanceof ConflictException) {
+        return { status: 'skipped', reason: error.message };
+      }
+      const message =
+        error instanceof Error ? error.message : 'Unknown enrollment error';
+      this.logger.warn(
+        `Batch enrollment failed for user ${userId} in course ${courseId}: ${message}`,
+      );
+      return { status: 'failed', error: message };
+    }
   }
 
   async findByCourse(courseId: string): Promise<Enrollment[]> {

@@ -7,7 +7,7 @@ import {
 } from 'typeorm';
 
 export type BatchJobStatus = 'pending' | 'processing' | 'completed' | 'failed';
-export type BatchJobType = 'users' | 'courses';
+export type BatchJobType = 'users' | 'courses' | 'enrollments';
 
 @Entity('batch_jobs')
 export class BatchJob {
@@ -40,6 +40,12 @@ export class BatchJob {
 
   @Column({ nullable: true })
   createdById!: string;
+
+  @Column({ nullable: true })
+  submittedById!: string;
+
+  @Column({ nullable: true, type: 'timestamp' })
+  notifiedAt!: Date | null;
 
   @Column({ nullable: true, type: 'timestamp' })
   startedAt!: Date | null;

@@ -329,6 +329,37 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
     await this.enqueue(payload.userEmail, tpl.subject, tpl.html);
   }
 
+  async sendBatchEnrollmentComplete(data: {
+    userEmail: string;
+    userName: string;
+    jobId: string;
+    totalCount: number;
+    successCount: number;
+    failureCount: number;
+    locale?: string;
+  }): Promise<void> {
+    const tpl = emailTemplates.batchEnrollmentComplete({
+      ...data,
+      jobUrl: `${this.config.get('frontend.url')}/enrollments/batch/${data.jobId}`,
+      locale: data.locale ?? 'en',
+    });
+    await this.enqueue(data.userEmail, tpl.subject, tpl.html);
+  }
+
+  async sendDataExportReady(data: {
+    userEmail: string;
+    userName: string;
+    downloadUrl: string;
+    expiresAt: Date;
+    locale?: string;
+  }): Promise<void> {
+    const tpl = emailTemplates.dataExportReady({
+      ...data,
+      locale: data.locale ?? 'en',
+    });
+    await this.enqueue(data.userEmail, tpl.subject, tpl.html);
+  }
+
   // --- Preferences management ---
 
   async getPreferences(userId: string) {

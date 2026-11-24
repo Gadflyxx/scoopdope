@@ -10,10 +10,11 @@ import { Repository } from 'typeorm';
 import { Cache } from 'cache-manager';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Inject } from '@nestjs/common';
-import { Course, CourseStatus, DifficultyLevel } from './course.entity';
+import { Course, CourseStatus, CourseVisibility, DifficultyLevel } from './course.entity';
 import { CourseQueryDto } from './dto/course-query.dto';
 import { SearchService } from '../search/search.service';
 import { MetricsService } from '../metrics/metrics.service';
+import { AccessControlService } from '../access-control/access-control.service';
 
 /** Ordered difficulty levels from easiest to hardest. */
 export const DIFFICULTY_ORDER: DifficultyLevel[] = [
@@ -62,8 +63,57 @@ export class CoursesService {
     @InjectRepository(Course) private repo: Repository<Course>,
     @Inject(CACHE_MANAGER) private cacheManager: Cache = {} as Cache,
     private readonly searchService: SearchService = {} as SearchService,
-    private readonly metricsService: MetricsService = {} as MetricsService
+    private readonly metricsService: MetricsService = {} as MetricsService,
+    private readonly accessControlService: AccessControlService = {} as AccessControlService
   ) {}
+
+  /**
+   * Resolve a course and enforce its visibility rules for the given viewer.
+   *
+   * This is the service-layer backstop for access control: any code path that
+   * returns course content (detail, lessons, resources) must go through here so
+   * that direct service calls cannot bypass the HTTP guard.
+   *
+   * - Missing or soft-deleted courses raise NotFoundException.
+   * - Viewers who fail the visibility check raise ForbiddenException.
+   */
+  async findAccessibleCourse(
+    id: string,
+    userId?: string | null
+  ): Promise<Course> {
+    const course = await this.repo.findOne({ where: { id } });
+    if (!course || course.isDeleted) {
+      throw new NotFoundException(`Course with id ${id} not found`);
+    }
+
+    const allowed = await this.accessControlService.canAccessCourse(course, userId ?? null);
+    if (!allowed) {
+      throw new ForbiddenException('You do not have access to this course');
+    }
+
+    return course;
+  }
+
+  /**
+   * Get a course's detail, enforcing visibility rules for the viewer.
+   */
+  async findOne(id: string, userId?: string | null): Promise<Course> {
+    return this.findAccessibleCourse(id, userId);
+  }
+
+  /**
+   * Get a course's lessons, enforcing visibility rules for the viewer.
+   */
+  async findLessons(id: string, userId?: string | null): Promise<Course> {
+    return this.findAccessibleCourse(id, userId);
+  }
+
+  /**
+   * Get a course's resources, enforcing visibility rules for the viewer.
+   */
+  async findResources(id: string, userId?: string | null): Promise<Course> {
+    return this.findAccessibleCourse(id, userId);
+  }
 
   /**
    * Get average rating for a course from reviews
@@ -103,10 +153,14 @@ export class CoursesService {
 
     // Only PUBLISHED courses are visible in the public catalogue. Draft,
     // pending-review, scheduled and archived courses are excluded here.
+    // Private courses are never listed in search/catalogue results.
     const qb = this.repo
       .createQueryBuilder('course')
       .where('course.status = :publishedStatus', { publishedStatus: CourseStatus.PUBLISHED })
-      .andWhere('course.isDeleted = :isDeleted', { isDeleted: false });
+      .andWhere('course.isDeleted = :isDeleted', { isDeleted: false })
+      .andWhere('(course.visibility IS NULL OR course.visibility != :privateVisibility)', {
+        privateVisibility: CourseVisibility.PRIVATE,
+      });
 
     if (search) {
       // Case-insensitive match on title/description (ILIKE handles casing).
@@ -299,6 +353,9 @@ export class CoursesService {
       .createQueryBuilder('course')
       .where('course.status = :publishedStatus', { publishedStatus: CourseStatus.PUBLISHED })
       .andWhere('course.isDeleted = :isDeleted', { isDeleted: false })
+      .andWhere('(course.visibility IS NULL OR course.visibility != :privateVisibility)', {
+        privateVisibility: CourseVisibility.PRIVATE,
+      })
       .andWhere('course.difficultyLevel IN (:...allowedLevels)', { allowedLevels })
       .orderBy('course.difficultyLevel', 'ASC')
       .addOrderBy('course.createdAt', 'DESC')

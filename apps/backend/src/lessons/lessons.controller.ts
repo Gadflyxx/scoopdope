@@ -6,6 +6,7 @@ import {
   Param,
   Req,
   Res,
+  UseGuards,
   BadRequestException,
   NotFoundException,
   HttpStatus,
@@ -13,6 +14,7 @@ import {
 import { Request, Response } from 'express';
 import { LessonsService } from './lessons.service';
 import { CreateLessonDto } from './dto/create-lesson.dto';
+import { AccessControlGuard } from '../access-control/access-control.guard';
 
 @Controller('lessons')
 export class LessonsController {
@@ -32,11 +34,17 @@ export class LessonsController {
   }
 
   @Get(':id/video')
+  @UseGuards(AccessControlGuard)
   async streamVideo(
     @Param('id') id: string,
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
+    // Resolve the parent course before serving content so the AccessControlGuard
+    // can enforce the course's visibility rules for this lesson resource.
+    const courseId = await this.lessonsService.getCourseIdForLesson(id);
+    (req as Request & { courseId?: string }).courseId = courseId;
+
     const video = await this.lessonsService.getVideoFile(id);
 
     if (!video) {
@@ -89,6 +97,15 @@ export class LessonsController {
       }
     });
     stream.pipe(res);
+  }
+
+  @Get(':id')
+  @UseGuards(AccessControlGuard)
+  async findOne(@Param('id') id: string, @Req() req: Request) {
+    const courseId = await this.lessonsService.getCourseIdForLesson(id);
+    (req as Request & { courseId?: string }).courseId = courseId;
+
+    return this.lessonsService.findOne(id);
   }
 
   private isValidUrl(value: string): boolean {

@@ -5,6 +5,13 @@ import { firstValueFrom } from 'rxjs';
 import { Queue, Worker, Job } from 'bullmq';
 import { BatchService, BatchPayloadItem } from './batch.service';
 
+export interface EnrollmentBatchItem {
+  userId: string;
+  courseId: string;
+}
+
+export const MAX_ENROLLMENT_BATCH_SIZE = 500;
+
 @Injectable()
 export class BatchQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BatchQueueService.name);
@@ -50,6 +57,8 @@ export class BatchQueueService implements OnModuleInit, OnModuleDestroy {
           await this.batchService.processUserBatch(batchJobId);
         } else if (job.name === 'courses') {
           await this.batchService.processCourseBatch(batchJobId);
+        } else if (job.name === 'enrollments') {
+          await this.batchService.processEnrollmentBatch(batchJobId);
         } else {
           throw new Error(`Unsupported batch job type: ${job.name}`);
         }
@@ -107,6 +116,22 @@ export class BatchQueueService implements OnModuleInit, OnModuleDestroy {
   async createCourseBatch(payload: BatchPayloadItem[], createdById: string) {
     const batchJob = await this.batchService.createCourseBatch(payload, createdById);
     await this.queue.add('courses', { batchJobId: batchJob.id });
+    return batchJob;
+  }
+
+  async createEnrollmentBatch(payload: EnrollmentBatchItem[], createdById: string) {
+    if (!Array.isArray(payload) || payload.length === 0) {
+      throw new Error('Enrollment batch payload must contain at least one item');
+    }
+
+    if (payload.length > MAX_ENROLLMENT_BATCH_SIZE) {
+      throw new Error(
+        `Enrollment batch exceeds maximum size of ${MAX_ENROLLMENT_BATCH_SIZE} items`,
+      );
+    }
+
+    const batchJob = await this.batchService.createEnrollmentBatch(payload, createdById);
+    await this.queue.add('enrollments', { batchJobId: batchJob.id });
     return batchJob;
   }
 
