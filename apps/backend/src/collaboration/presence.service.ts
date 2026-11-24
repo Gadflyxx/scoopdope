@@ -60,6 +60,44 @@ export class PresenceService {
     this.logger.log(`instructor ${instructorId} left course ${courseId}`);
   }
 
+  /**
+   * Fully remove a participant from every course they are tracked in.
+   * Used by gateway disconnect handling so stale client references do not
+   * accumulate in memory. Empty course maps are pruned as well.
+   * Returns the course ids the participant was removed from.
+   */
+  remove(instructorId: string): string[] {
+    const removedFrom: string[] = [];
+    for (const [courseId, courseMap] of this.presence) {
+      if (courseMap.delete(instructorId)) {
+        removedFrom.push(courseId);
+        if (courseMap.size === 0) this.presence.delete(courseId);
+      }
+    }
+    if (removedFrom.length > 0) {
+      this.logger.log(
+        `instructor ${instructorId} removed from courses ${removedFrom.join(', ')}`,
+      );
+    }
+    return removedFrom;
+  }
+
+  /**
+   * Report the current in-memory map sizes. Intended for tests that assert
+   * memory/state returns to baseline after clients disconnect.
+   */
+  getStats(): { courseCount: number; participantCount: number; versionCount: number } {
+    let participantCount = 0;
+    for (const courseMap of this.presence.values()) {
+      participantCount += courseMap.size;
+    }
+    return {
+      courseCount: this.presence.size,
+      participantCount,
+      versionCount: this.courseVersions.size,
+    };
+  }
+
   /** Refresh the last-seen heartbeat for an instructor. */
   touch(courseId: string, instructorId: string): void {
     const entry = this.presence.get(courseId)?.get(instructorId);

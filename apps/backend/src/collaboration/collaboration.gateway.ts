@@ -216,30 +216,39 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   @SubscribeMessage('leave')
   onLeave(@ConnectedSocket() client: Socket) {
     const session = this.sockets.get(client.id);
+    // Clear the per-socket reference even when no session was recorded, so a
+    // stray `leave` cannot leave stale state behind.
+    this.sockets.delete(client.id);
     if (!session) return { left: false };
     this.presence.leave(session.courseId, session.instructorId);
     this.clearHeartbeat(session.courseId, session.instructorId);
     client.leave(session.courseId);
-    this.sockets.delete(client.id);
     this.broadcastPresence(session.courseId);
     return { left: true, courseId: session.courseId };
   }
 
   handleDisconnect(client: Socket): void {
-    for (const sessionId of Array.from(this.collaborators.keys())) {
-      this.removeCollaborator(client, sessionId);
-    }
+    // Always drop the per-socket reference first so repeated disconnects for the
+    // same client id cannot leak entries in the `sockets` map.
     const session = this.sockets.get(client.id);
-    if (!session) return;
-    this.presence.leave(session.courseId, session.instructorId);
-    this.clearHeartbeat(session.courseId, session.instructorId);
     this.sockets.delete(client.id);
+
+    if (session) {
+      this.presence.leave(session.courseId, session.instructorId);
+      this.clearHeartbeat(session.courseId, session.instructorId);
+    }
+
     // Remove the socket from every room it was in, not just the course room.
     for (const room of client.rooms) {
       if (room !== client.id) client.leave(room);
     }
-    this.broadcastPresence(session.courseId);
-    this.logger.log(`socket ${client.id} disconnected; cleared presence for ${session.instructorId}`);
+
+    if (session) {
+      this.broadcastPresence(session.courseId);
+      this.logger.log(
+        `socket ${client.id} disconnected; cleared presence for ${session.instructorId}`,
+      );
+    }
   }
 
   /** Register a persisted collaboration session so sockets can join it. */
@@ -323,7 +332,13 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
           if (session.courseId === courseId && session.instructorId === instructorId) {
             this.sockets.delete(socketId);
             const socket = this.server?.sockets?.sockets?.get(socketId);
-            socket?.disconnect(true);
+            if (socket) {
+              // Leave rooms before disconnecting so no room references linger.
+              for (const room of socket.rooms) {
+                if (room !== socket.id) socket.leave(room);
+              }
+              socket.disconnect(true);
+            }
           }
         }
         changed = true;

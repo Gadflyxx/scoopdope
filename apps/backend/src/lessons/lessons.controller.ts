@@ -3,22 +3,36 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
+  Delete,
   Param,
   Req,
   Res,
   UseGuards,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { LessonsService } from './lessons.service';
 import { CreateLessonDto } from './dto/create-lesson.dto';
-import { AccessControlGuard } from '../access-control/access-control.guard';
+import { QaService } from '../qa/qa.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+
+interface AuthenticatedRequest extends Request {
+  user?: { id?: string; userId?: string; sub?: string };
+}
 
 @Controller('lessons')
 export class LessonsController {
-  constructor(private readonly lessonsService: LessonsService) {}
+  constructor(
+    private readonly lessonsService: LessonsService,
+    private readonly qaService: QaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   @Post()
   create(@Body() createLessonDto: CreateLessonDto) {
@@ -31,6 +45,48 @@ export class LessonsController {
     }
 
     return this.lessonsService.create(createLessonDto);
+  }
+
+  @Post(':id/questions')
+  @UseGuards(JwtAuthGuard)
+  async createQuestion(
+    @Param('id') id: string,
+    @Body() body: { content: string },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const userId = this.getUserId(req);
+
+    if (!body || typeof body.content !== 'string' || body.content.trim() === '') {
+      throw new BadRequestException('content is required');
+    }
+
+    const enrolled = await this.lessonsService.isUserEnrolled(id, userId);
+    if (!enrolled) {
+      throw new ForbiddenException('You must be enrolled in this lesson to ask a question');
+    }
+
+    const question = await this.qaService.createQuestion({
+      lessonId: id,
+      authorId: userId,
+      content: body.content.trim(),
+    });
+
+    const instructorId = await this.lessonsService.getInstructorId(id);
+    if (instructorId && instructorId !== userId) {
+      await this.notificationsService.create({
+        userId: instructorId,
+        type: 'question',
+        message: 'A new question was posted on your lesson',
+        metadata: { lessonId: id, questionId: question.id },
+      });
+    }
+
+    return question;
+  }
+
+  @Get(':id/questions')
+  async listQuestions(@Param('id') id: string) {
+    return this.qaService.listQuestionsByLesson(id);
   }
 
   @Get(':id/video')
@@ -99,13 +155,12 @@ export class LessonsController {
     stream.pipe(res);
   }
 
-  @Get(':id')
-  @UseGuards(AccessControlGuard)
-  async findOne(@Param('id') id: string, @Req() req: Request) {
-    const courseId = await this.lessonsService.getCourseIdForLesson(id);
-    (req as Request & { courseId?: string }).courseId = courseId;
-
-    return this.lessonsService.findOne(id);
+  private getUserId(req: AuthenticatedRequest): string {
+    const userId = req.user?.id ?? req.user?.userId ?? req.user?.sub;
+    if (!userId) {
+      throw new ForbiddenException('Authenticated user is required');
+    }
+    return userId;
   }
 
   private isValidUrl(value: string): boolean {
@@ -115,5 +170,70 @@ export class LessonsController {
     } catch {
       return false;
     }
+  }
+}
+
+@Controller('questions')
+export class QuestionsController {
+  constructor(
+    private readonly qaService: QaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
+
+  @Post(':id/answers')
+  @UseGuards(JwtAuthGuard)
+  async createAnswer(
+    @Param('id') id: string,
+    @Body() body: { content: string },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const userId = this.getUserId(req);
+
+    if (!body || typeof body.content !== 'string' || body.content.trim() === '') {
+      throw new BadRequestException('content is required');
+    }
+
+    const question = await this.qaService.getQuestionById(id);
+    if (!question) {
+      throw new NotFoundException('Question not found');
+    }
+
+    const answer = await this.qaService.createAnswer({
+      questionId: id,
+      authorId: userId,
+      content: body.content.trim(),
+    });
+
+    if (question.authorId && question.authorId !== userId) {
+      await this.notificationsService.create({
+        userId: question.authorId,
+        type: 'answer',
+        message: 'Your question has been answered',
+        metadata: { questionId: id, answerId: answer.id },
+      });
+    }
+
+    return answer;
+  }
+
+  @Post(':id/upvote')
+  @UseGuards(JwtAuthGuard)
+  async upvote(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    const userId = this.getUserId(req);
+
+    const question = await this.qaService.getQuestionById(id);
+    if (!question) {
+      throw new NotFoundException('Question not found');
+    }
+
+    return this.qaService.upvoteQuestion(id, userId);
+  }
+
+  private getUserId(req: AuthenticatedRequest): string {
+    const userId = req.user?.id ?? req.user?.userId ?? req.user?.sub;
+    if (!userId) {
+      throw new ForbiddenException('Authenticated user is required');
+    }
+    return userId;
   }
 }

@@ -51,6 +51,16 @@ The following are **out of scope**:
 - Sensitive data exposure
 - Smart contract exploits (reentrancy, integer overflow, etc.)
 - JWT secret exposure or weak signing
+- Hardcoded secrets (passwords, JWT secrets, API keys) committed to the repository
+
+## Secrets Management
+
+Hardcoded secrets in source code or configuration files are **strictly prohibited**. All secrets — database passwords, JWT signing secrets, API keys, and any other credentials — must be sourced from environment variables (or a dedicated secrets manager). No secret values may be committed to the repository.
+
+- Configuration is validated on startup: the application **fails to start with a clear error** if a required secret environment variable is missing.
+- `.env.example` documents every required variable name and its purpose; it must never contain real secret values.
+- Contributors must not commit `.env` files or any file containing live credentials.
+- Pull requests are expected to pass secret scanning (e.g. `git-secrets` or `trufflehog`) with no findings.
 
 ## Security Measures in Place
 

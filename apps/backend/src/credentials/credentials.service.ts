@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   NotFoundException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -29,6 +30,8 @@ export class CredentialsService {
     @Inject(forwardRef(() => StellarService)) private stellarService: StellarService,
     private kycService: KycService,
     private coursesService: CoursesService,
+    private usersService: UsersService,
+    private eventEmitter: EventEmitter2,
     @Optional() private configService?: ConfigService
   ) {}
 
@@ -191,17 +194,67 @@ export class CredentialsService {
     return credential;
   }
 
+  async revoke(
+    credentialId: string,
+    adminUserId: string,
+    reason?: string
+  ): Promise<Credential> {
+    const credential = await this.repo.findOne({ where: { id: credentialId } });
+    if (!credential) {
+      throw new NotFoundException('Credential not found');
+    }
+
+    if (credential.revokedAt) {
+      throw new BadRequestException('Credential is already revoked');
+    }
+
+    // Record the revocation on-chain via the analytics contract (admin-only)
+    try {
+      await this.stellarService.revokeCredential(
+        credential.stellarPublicKey,
+        credential.id,
+        reason
+      );
+    } catch {
+      // Non-fatal: the off-chain revocation record is still authoritative
+    }
+
+    credential.revokedAt = new Date();
+    credential.revocationReason = reason ?? null;
+    credential.revokedBy = adminUserId;
+    const saved = await this.repo.save(credential);
+
+    const user = await this.usersService.findById(credential.userId);
+    this.eventEmitter.emit('credential.revoked', {
+      credentialId: saved.id,
+      userId: saved.userId,
+      userEmail: user?.email ?? '',
+      userName: user?.username ?? '',
+      reason: saved.revocationReason,
+      revokedBy: adminUserId,
+    });
+
+    return saved;
+  }
+
   async verify(txHash: string) {
     const credential = await this.repo.findOne({ where: { txHash } });
     if (!credential) {
-      return { credential: null, verified: false, expired: false, message: 'Credential not found' };
+      return { credential: null, verified: false, expired: false, revoked: false, message: 'Credential not found' };
     }
     const isExpired = credential.expiresAt ? new Date(credential.expiresAt) < new Date() : false;
+    const isRevoked = !!credential.revokedAt;
     return {
       credential,
-      verified: !isExpired,
+      verified: !isExpired && !isRevoked,
       expired: isExpired,
-      message: isExpired ? 'Credential has expired' : 'Credential verified successfully',
+      revoked: isRevoked,
+      status: isRevoked ? 'REVOKED' : isExpired ? 'EXPIRED' : 'VERIFIED',
+      message: isRevoked
+        ? 'Credential has been revoked'
+        : isExpired
+          ? 'Credential has expired'
+          : 'Credential verified successfully',
     };
   }
 }

@@ -10,7 +10,12 @@ export type CourseLevel = 'beginner' | 'intermediate' | 'advanced';
 export type CourseLanguage = 'en' | 'fr' | 'ar' | 'es';
 
 /** Lifecycle status of a course */
-export type CourseStatus = 'draft' | 'scheduled' | 'published';
+export type CourseStatus =
+  | 'draft'
+  | 'under_review'
+  | 'scheduled'
+  | 'published'
+  | 'rejected';
 
 /**
  * Public course summary — used in list views and search results.
@@ -26,6 +31,8 @@ export interface CourseSummary {
   instructorId: string | null;
   requiresKyc: boolean;
   averageRating: number | null;
+  /** Notes provided by the admin when a course is rejected */
+  rejectionNotes?: string | null;
   createdAt: string;
 }
 
@@ -106,4 +113,21 @@ export interface CreateReviewDto {
   rating: number;
   /** Optional review text */
   comment?: string;
+}
+
+/**
+ * Completion status of a single prerequisite course for a learner.
+ */
+export interface PrerequisiteStatus {
+  courseId: string;
+  title: string;
+  completed: boolean;
+}
+
+/**
+ * Response shape for the prerequisites status endpoint of a course.
+ */
+export interface CoursePrerequisitesResponse {
+  allSatisfied: boolean;
+  prerequisites: PrerequisiteStatus[];
 }

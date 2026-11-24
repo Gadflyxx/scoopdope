@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { WifiOff } from 'lucide-react';
+import { WifiOff, BookOpen } from 'lucide-react';
 import Link from 'next/link';
 
 export default function OfflinePage() {
@@ -30,13 +30,20 @@ export default function OfflinePage() {
       {reconnecting ? (
         <p className="text-blue-500 font-medium">Reconnecting...</p>
       ) : (
-        <div className="flex gap-3">
+        <div className="flex flex-col sm:flex-row gap-3">
           <button
             onClick={() => window.location.reload()}
             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
             Try Again
           </button>
+          <Link
+            href="/courses"
+            className="inline-flex items-center justify-center gap-2 px-6 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+          >
+            <BookOpen className="w-4 h-4" />
+            View Cached Courses
+          </Link>
           <Link
             href="/"
             className="px-6 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"

@@ -1,4 +1,4 @@
-import { MigrationInterface, QueryRunner, Table } from 'typeorm';
+import { MigrationInterface, QueryRunner, Table, TableForeignKey, TableIndex } from 'typeorm';
 
 export class InitialMigration1700000000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -148,5 +148,167 @@ export class InitialMigration1700000000000 implements MigrationInterface {
     await queryRunner.dropTable('notifications');
     await queryRunner.dropTable('courses');
     await queryRunner.dropTable('users');
+  }
+}
+
+export class AddLessonResourcesAndNotes1700000000001 implements MigrationInterface {
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    // Create lesson_resources table
+    await queryRunner.createTable(
+      new Table({
+        name: 'lesson_resources',
+        columns: [
+          {
+            name: 'id',
+            type: 'uuid',
+            isPrimary: true,
+            generationStrategy: 'uuid',
+            default: 'uuid_generate_v4()',
+          },
+          {
+            name: 'lesson_id',
+            type: 'uuid',
+          },
+          {
+            name: 'filename',
+            type: 'varchar',
+          },
+          {
+            name: 'storage_key',
+            type: 'varchar',
+          },
+          {
+            name: 'size_bytes',
+            type: 'bigint',
+          },
+          {
+            name: 'mime_type',
+            type: 'varchar',
+          },
+          {
+            name: 'created_at',
+            type: 'timestamp',
+            default: 'now()',
+          },
+        ],
+      }),
+      true
+    );
+
+    await queryRunner.createForeignKey(
+      'lesson_resources',
+      new TableForeignKey({
+        columnNames: ['lesson_id'],
+        referencedTableName: 'lessons',
+        referencedColumnNames: ['id'],
+        onDelete: 'CASCADE',
+      })
+    );
+
+    await queryRunner.createIndex(
+      'lesson_resources',
+      new TableIndex({
+        name: 'IDX_lesson_resources_lesson_id',
+        columnNames: ['lesson_id'],
+      })
+    );
+
+    // Create notes table
+    await queryRunner.createTable(
+      new Table({
+        name: 'notes',
+        columns: [
+          {
+            name: 'id',
+            type: 'uuid',
+            isPrimary: true,
+            generationStrategy: 'uuid',
+            default: 'uuid_generate_v4()',
+          },
+          {
+            name: 'user_id',
+            type: 'uuid',
+          },
+          {
+            name: 'lesson_id',
+            type: 'uuid',
+          },
+          {
+            name: 'course_id',
+            type: 'uuid',
+          },
+          {
+            name: 'content',
+            type: 'text',
+          },
+          {
+            name: 'timestamp_seconds',
+            type: 'int',
+          },
+          {
+            name: 'created_at',
+            type: 'timestamp',
+            default: 'now()',
+          },
+          {
+            name: 'updated_at',
+            type: 'timestamp',
+            default: 'now()',
+          },
+        ],
+      }),
+      true
+    );
+
+    await queryRunner.createForeignKey(
+      'notes',
+      new TableForeignKey({
+        columnNames: ['user_id'],
+        referencedTableName: 'users',
+        referencedColumnNames: ['id'],
+        onDelete: 'CASCADE',
+      })
+    );
+
+    await queryRunner.createForeignKey(
+      'notes',
+      new TableForeignKey({
+        columnNames: ['lesson_id'],
+        referencedTableName: 'lessons',
+        referencedColumnNames: ['id'],
+        onDelete: 'CASCADE',
+      })
+    );
+
+    await queryRunner.createForeignKey(
+      'notes',
+      new TableForeignKey({
+        columnNames: ['course_id'],
+        referencedTableName: 'courses',
+        referencedColumnNames: ['id'],
+        onDelete: 'CASCADE',
+      })
+    );
+
+    await queryRunner.createIndex(
+      'notes',
+      new TableIndex({
+        name: 'IDX_notes_lesson_id',
+        columnNames: ['lesson_id'],
+      })
+    );
+
+    await queryRunner.createIndex(
+      'notes',
+      new TableIndex({
+        name: 'IDX_notes_user_id_lesson_id',
+        columnNames: ['user_id', 'lesson_id'],
+      })
+    );
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.dropTable('notes');
+    await queryRunner.dropTable('lesson_resources');
   }
 }

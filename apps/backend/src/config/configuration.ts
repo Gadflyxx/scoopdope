@@ -53,7 +53,39 @@ function buildRedisUrl(): string {
   return `redis://${host}:${port}/${db}`;
 }
 
-export default () => ({
+/**
+ * Read a required environment variable.
+ *
+ * Throws a clear, actionable error when the variable is missing or blank so
+ * the application fails fast at startup instead of running with an insecure
+ * default or an empty secret.
+ */
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (value === undefined || value.trim() === '') {
+    throw new Error(
+      `Missing required environment variable "${name}". ` +
+        `Set it in your environment (see .env.example) before starting the application.`,
+    );
+  }
+  return value;
+}
+
+/**
+ * Read an optional environment variable, returning `undefined` when unset.
+ * Never falls back to a hardcoded secret value.
+ */
+function optionalEnv(name: string): string | undefined {
+  const value = process.env[name];
+  return value === undefined || value.trim() === '' ? undefined : value;
+}
+
+export default () => {
+  // Validate required secrets up front so startup fails with a clear error.
+  const jwtSecret = requireEnv('JWT_SECRET');
+  const databasePassword = requireEnv('DATABASE_PASSWORD');
+
+  return {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
 
@@ -61,7 +93,7 @@ export default () => ({
     host: process.env.DATABASE_HOST!,
     port: parseInt(process.env.DATABASE_PORT || '5432', 10),
     username: process.env.DATABASE_USER!,
-    password: process.env.DATABASE_PASSWORD!,
+    password: databasePassword,
     name: process.env.DATABASE_NAME!,
     poolMin: parseInt(process.env.DB_POOL_MIN || process.env.DATABASE_POOL_MIN || '5', 10),
     poolMax: parseInt(process.env.DB_POOL_MAX || process.env.DATABASE_POOL_MAX || '20', 10),
@@ -76,7 +108,7 @@ export default () => ({
   },
 
   jwt: {
-    secret: process.env.JWT_SECRET!,
+    secret: jwtSecret,
   },
 
   redis: {
@@ -85,7 +117,7 @@ export default () => ({
 
   stellar: {
     network: process.env.STELLAR_NETWORK as 'testnet' | 'mainnet',
-    secretKey: process.env.STELLAR_SECRET_KEY || '',
+    secretKey: optionalEnv('STELLAR_SECRET_KEY'),
     sorobanRpcUrl: process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org',
     contractId: process.env.SOROBAN_CONTRACT_ID || '',
     enrollmentContractId: process.env.ENROLLMENT_CONTRACT_ID || '',
@@ -117,14 +149,14 @@ export default () => ({
   },
 
   google: {
-    clientId: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    clientId: optionalEnv('GOOGLE_CLIENT_ID'),
+    clientSecret: optionalEnv('GOOGLE_CLIENT_SECRET'),
     callbackUrl: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3000/auth/google/callback',
   },
 
   microsoft: {
-    clientId: process.env.MICROSOFT_CLIENT_ID,
-    clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
+    clientId: optionalEnv('MICROSOFT_CLIENT_ID'),
+    clientSecret: optionalEnv('MICROSOFT_CLIENT_SECRET'),
     callbackUrl: process.env.MICROSOFT_CALLBACK_URL || 'http://localhost:3000/auth/microsoft/callback',
   },
 
@@ -144,13 +176,13 @@ export default () => ({
   },
 
   kyc: {
-    providerApiKey: process.env.KYC_PROVIDER_API_KEY || '',
+    providerApiKey: optionalEnv('KYC_PROVIDER_API_KEY'),
   },
 
   aws: {
     region: process.env.AWS_REGION || 'us-east-1',
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+    accessKeyId: optionalEnv('AWS_ACCESS_KEY_ID'),
+    secretAccessKey: optionalEnv('AWS_SECRET_ACCESS_KEY'),
   },
 
   moderation: {
@@ -159,19 +191,19 @@ export default () => ({
 
   elasticsearch: {
     node: process.env.ELASTICSEARCH_NODE || 'http://localhost:9200',
-    apiKey: process.env.ELASTICSEARCH_API_KEY || '',
+    apiKey: optionalEnv('ELASTICSEARCH_API_KEY'),
   },
 
   stripe: {
-    secretKey: process.env.STRIPE_SECRET_KEY || '',
-    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
+    secretKey: optionalEnv('STRIPE_SECRET_KEY'),
+    webhookSecret: optionalEnv('STRIPE_WEBHOOK_SECRET'),
     proPriceId: process.env.STRIPE_PRO_PRICE_ID || '',
     enterprisePriceId: process.env.STRIPE_ENTERPRISE_PRICE_ID || '',
     prorationEnabled: process.env.STRIPE_SUBSCRIPTION_PRORATION_ENABLED !== 'false',
   },
 
   exchangeRate: {
-    apiKey: process.env.EXCHANGE_RATE_API_KEY || '',
+    apiKey: optionalEnv('EXCHANGE_RATE_API_KEY'),
     baseUrl: process.env.EXCHANGE_RATE_BASE_URL || 'https://open.er-api.com/v6/latest',
     cacheTtlMs: parseInt(process.env.EXCHANGE_RATE_CACHE_TTL_MS || '3600000', 10),
   },
@@ -186,12 +218,13 @@ export default () => ({
   },
 
   vapid: {
-    publicKey: process.env.VAPID_PUBLIC_KEY || '',
-    privateKey: process.env.VAPID_PRIVATE_KEY || '',
+    publicKey: optionalEnv('VAPID_PUBLIC_KEY'),
+    privateKey: optionalEnv('VAPID_PRIVATE_KEY'),
     subject: process.env.VAPID_SUBJECT || 'mailto:admin@scoopdope.com',
   },
 
   survey: {
-    pseudonymizationSecret: process.env.SURVEY_PSEUDONYMIZATION_SECRET || '',
+    pseudonymizationSecret: optionalEnv('SURVEY_PSEUDONYMIZATION_SECRET'),
   },
-});
+  };
+};

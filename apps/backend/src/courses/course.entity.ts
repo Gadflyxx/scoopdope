@@ -15,10 +15,12 @@ import { Category } from './category.entity';
 
 export enum CourseStatus {
   DRAFT = 'draft',
+  UNDER_REVIEW = 'under_review',
   PENDING_REVIEW = 'pending_review',
   SCHEDULED = 'scheduled',
   PENDING = 'pending',
   PUBLISHED = 'published',
+  REJECTED = 'rejected',
   ARCHIVED = 'archived',
 }
 
@@ -106,6 +108,10 @@ export class Course {
   @Column({ nullable: true, type: 'timestamptz' })
   publishedAt: Date | null;
 
+  /** Optional notes provided by the admin when rejecting a course. */
+  @Column({ nullable: true, type: 'text' })
+  rejectionNotes: string | null;
+
   /**
    * Maximum number of students that can be enrolled simultaneously.
    * Null means unlimited.
@@ -140,8 +146,13 @@ export class Course {
   @OneToMany(() => Review, (review) => review.course, { cascade: ['remove'] })
   reviews: Review[];
 
+  /** Prerequisite courses that must be completed before enrolling in this course. */
   @OneToMany(() => CoursePrerequisite, (cp) => cp.course, { cascade: ['remove'] })
   prerequisites: CoursePrerequisite[];
+
+  /** Inverse side: courses that list this course as a prerequisite. */
+  @OneToMany(() => CoursePrerequisite, (cp) => cp.prerequisiteCourse)
+  prerequisiteOf: CoursePrerequisite[];
 
   averageRating?: number | null;
 
@@ -164,5 +175,32 @@ export class Course {
     this.status = CourseStatus.PUBLISHED;
     this.isPublished = true;
     this.publishedAt = new Date();
+  }
+
+  /**
+   * Submit the course for moderation review.
+   * Clears any previous rejection notes so the reviewer starts fresh.
+   */
+  submitForReview(): void {
+    this.status = CourseStatus.UNDER_REVIEW;
+    this.isPublished = false;
+    this.rejectionNotes = null;
+  }
+
+  /**
+   * Approve a course under review and publish it.
+   */
+  approve(): void {
+    this.publish();
+    this.rejectionNotes = null;
+  }
+
+  /**
+   * Reject a course under review, optionally recording reviewer notes.
+   */
+  reject(notes?: string | null): void {
+    this.status = CourseStatus.REJECTED;
+    this.isPublished = false;
+    this.rejectionNotes = notes ?? null;
   }
 }

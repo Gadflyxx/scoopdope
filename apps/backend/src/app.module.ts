@@ -17,6 +17,9 @@ import { Bundle } from './bundles/bundle.entity';
 import { BundleCourse } from './bundles/bundle-course.entity';
 import { Payment } from './payments/payment.entity';
 import { SupportTicketAttachment } from './support-tickets/support-ticket-attachment.entity';
+import { Question } from './qa/question.entity';
+import { Answer } from './qa/answer.entity';
+import { QuestionUpvote } from './qa/question-upvote.entity';
 
 // ── Modules ─────────────────────────────────────────────────────────────────────
 
@@ -37,7 +40,9 @@ import { LiveSessionsModule } from './live-sessions/live-sessions.module';
 import { PaymentsModule } from './payments/payments.module';
 import { RewardsModule } from './rewards/rewards.module';
 import { SupportTicketsModule } from './support-tickets/support-tickets.module';
+import { QaModule } from './qa/qa.module';
 import { HealthModule } from './health/health.module';
+import { MessagesModule } from './messages/messages.module';
 import * as redisStore from 'cache-manager-redis-store';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation.schema';
@@ -51,6 +56,7 @@ import { CollaborationModule } from './collaboration/collaboration.module';
 import { AuthLoggerMiddleware } from './auth/auth-logger.middleware';
 import { CsrfMiddleware } from './common/middleware/csrf.middleware';
 import { EtagMiddleware } from './common/middleware/etag.middleware';
+import { IpAllowlistGuard } from './common/guards/ip-allowlist.guard';
 
 // Global request body size limit (1MB) applied to all routes.
 const BODY_SIZE_LIMIT = '1mb';
@@ -115,6 +121,9 @@ export class GracefulShutdownService implements OnApplicationShutdown {
           BundleCourse,
           Payment,
           SupportTicketAttachment,
+          Question,
+          Answer,
+          QuestionUpvote,
         ],
         synchronize: configService.get('environment') !== 'production',
         logging: configService.get('environment') !== 'production',
@@ -161,6 +170,7 @@ export class GracefulShutdownService implements OnApplicationShutdown {
     PaymentsModule,
     RewardsModule,
     SupportTicketsModule,
+    MessagesModule,
     RateLimitModule,
     ApiVersionModule,
     MonitoringModule,
@@ -171,6 +181,7 @@ export class GracefulShutdownService implements OnApplicationShutdown {
       provide: APP_GUARD,
       useClass: UserRateLimitGuard,
     },
+    IpAllowlistGuard,
     GracefulShutdownService,
   ],
 })

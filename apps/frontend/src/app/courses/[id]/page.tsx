@@ -70,7 +70,10 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
   const { user } = useAuth();
   const { clear: clearCompare } = useCompareStore();
 
-  const hasUnmetPrereqs = prereqStatus !== null && !prereqStatus.allSatisfied && prereqStatus.prerequisites.length > 0;
+  const prerequisites = prereqStatus?.prerequisites ?? [];
+  const hasPrerequisites = prerequisites.length > 0;
+  const hasUnmetPrereqs = hasPrerequisites && !prereqStatus?.allSatisfied;
+  const isFull = course?.maxEnrollment != null && (course.enrollmentCount ?? 0) >= course.maxEnrollment;
 
   const courseId = params.id;
   const isInstructor = user?.role === 'instructor' || user?.role === 'admin';
@@ -119,8 +122,13 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
       if (!user) { setPrereqLoading(false); return; }
       try {
         const { data } = await api.get(`/v1/courses/${courseId}/prerequisites/status`);
-        setPrereqStatus(data.data ?? data);
+        const status: PrerequisiteStatus = data.data ?? data;
+        setPrereqStatus({
+          allSatisfied: status?.allSatisfied ?? true,
+          prerequisites: Array.isArray(status?.prerequisites) ? status.prerequisites : [],
+        });
       } catch {
+        // Prerequisite data unavailable — do not block enrollment
         setPrereqStatus(null);
       } finally {
         setPrereqLoading(false);
@@ -178,9 +186,35 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
       await api.post(`/courses/${courseId}/enroll`);
       setIsEnrolled(true);
     } catch (err: unknown) {
-      const msg: string =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Enrollment failed. Please try again.';
-      setEnrollError(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      const response = (err as {
+        response?: {
+          status?: number;
+          data?: { message?: string; missingPrerequisites?: Array<{ courseId: string; title: string }> };
+        };
+      })?.response;
+
+      if (response?.status === 422 && response.data?.missingPrerequisites?.length) {
+        const missing = response.data.missingPrerequisites;
+        setEnrollError(
+          `Missing prerequisites: ${missing.map((p) => p.title).join(', ')}`,
+        );
+        setPrereqStatus((prev) => ({
+          allSatisfied: false,
+          prerequisites: missing.map((p) => {
+            const existing = prev?.prerequisites.find((e) => e.courseId === p.courseId);
+            return {
+              courseId: p.courseId,
+              title: p.title,
+              completed: existing?.completed ?? false,
+              enrolled: existing?.enrolled ?? false,
+            };
+          }),
+        }));
+      } else {
+        const msg: string =
+          response?.data?.message ?? 'Enrollment failed. Please try again.';
+        setEnrollError(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      }
     } finally {
       setEnrolling(false);
     }
@@ -232,18 +266,21 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
                   </p>
                 )}
                 {hasUnmetPrereqs && !prereqLoading && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 p-3 space-y-2">
+                  <div
+                    className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 p-3 space-y-2"
+                    role="alert"
+                  >
                     <div className="flex items-center gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
                       <span className="text-xs font-semibold text-amber-800 dark:text-amber-300">Prerequisites required</span>
                     </div>
                     <ul className="space-y-1">
-                      {prereqStatus!.prerequisites.map((p) => (
+                      {prerequisites.map((p) => (
                         <li key={p.courseId} className="flex items-center gap-1.5 text-xs">
                           {p.completed ? (
-                            <CheckCircle className="w-3.5 h-3.5 text-green-600 dark:text-green-400 shrink-0" />
+                            <CheckCircle2 className="w-3.5 h-3.5 text-green-600 dark:text-green-400 shrink-0" aria-label="Completed" />
                           ) : (
-                            <Circle className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                            <Circle className="w-3.5 h-3.5 text-gray-400 shrink-0" aria-label="Not completed" />
                           )}
                           {p.completed ? (
                             <span className="line-through text-gray-400 truncate">{p.title}</span>
@@ -306,8 +343,49 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
       {tab === 'overview' && (
         <div className="space-y-4">
           <p className="text-gray-600">Course content and details would appear here.</p>
-          {!isInstructor && <PrerequisitesPanel courseId={courseId} />}
-          {!isInstructor && (
+          {!isInstructor && hasPrerequisites && (
+            <section
+              aria-labelledby="prerequisites-heading"
+              className="rounded-xl border border-gray-200 dark:border-gray-800 p-4 space-y-3"
+            >
+              <h2 id="prerequisites-heading" className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Prerequisites
+              </h2>
+              {hasUnmetPrereqs && (
+                <div
+                  className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 p-3"
+                  role="alert"
+                >
+                  <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-800 dark:text-amber-300">
+                    You must complete all prerequisites before enrolling in this course.
+                  </p>
+                </div>
+              )}
+              <ul className="space-y-2">
+                {prerequisites.map((p) => (
+                  <li key={p.courseId} className="flex items-center gap-2 text-sm">
+                    {p.completed ? (
+                      <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" aria-label="Completed" />
+                    ) : (
+                      <Circle className="w-4 h-4 text-gray-400 shrink-0" aria-label="Not completed" />
+                    )}
+                    {p.completed ? (
+                      <span className="text-gray-500 dark:text-gray-400 line-through">{p.title}</span>
+                    ) : (
+                      <Link href={`/courses/${p.courseId}`} className="text-blue-600 hover:underline">
+                        {p.title} →
+                      </Link>
+                    )}
+                    <span className="ml-auto text-xs text-gray-400">
+                      {p.completed ? 'Completed' : p.enrolled ? 'In progress' : 'Not started'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {!isInstructor && !isEnrolled && (
             <div className="relative group inline-block">
               <button
                 onClick={handleEnroll}
@@ -323,6 +401,11 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
                 </div>
               )}
             </div>
+          )}
+          {!isInstructor && hasUnmetPrereqs && (
+            <p className="text-xs text-amber-700 dark:text-amber-400" role="status">
+              Enrollment is unavailable until all prerequisites are completed.
+            </p>
           )}
           <ReviewForm courseId={courseId} onSuccess={() => { setTab('reviews'); setReviewsKey((k) => k + 1); }} />
         </div>
