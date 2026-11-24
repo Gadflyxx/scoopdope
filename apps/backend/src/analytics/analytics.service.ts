@@ -13,6 +13,34 @@ import { Review } from '../courses/review.entity';
 import { User } from '../users/user.entity';
 import { Course, CourseStatus } from '../courses/course.entity';
 import { BuybackEvent, BuybackEventType } from './buyback-event.entity';
+import { VideoEvent, VideoEventType } from './video-event.entity';
+
+/** Payload accepted by `POST /v1/analytics/video-events`. */
+export interface RecordVideoEventDto {
+  lessonId: string;
+  event_type: VideoEventType;
+  timestamp_seconds: number;
+}
+
+/** Per-lesson engagement heatmap returned to the instructor dashboard. */
+export interface VideoHeatmap {
+  lessonId: string;
+  totalEvents: number;
+  totalSessions: number;
+  completionPercentage: number;
+  mostReplayedSegment: {
+    startSeconds: number;
+    endSeconds: number;
+    seekCount: number;
+  } | null;
+  buckets: { startSeconds: number; endSeconds: number; eventCount: number }[];
+}
+
+/** Width of a single heatmap bucket, in seconds. */
+const VIDEO_HEATMAP_BUCKET_SECONDS = 10;
+
+/** Raw video events are retained for this many days before being purged. */
+const VIDEO_EVENT_RETENTION_DAYS = 90;
 
 /**
  * Raw Soroban contract event as delivered by the Stellar event listener.
@@ -82,6 +110,7 @@ export class AnalyticsService {
     @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(Course) private courseRepo: Repository<Course>,
     @InjectRepository(BuybackEvent) private buybackEventRepo: Repository<BuybackEvent>,
+    @InjectRepository(VideoEvent) private videoEventRepo: Repository<VideoEvent>,
     @Inject(CACHE_MANAGER) private cache: Cache,
     private readonly distributedLockService: DistributedLockService,
     private readonly pseudonymizationService: PseudonymizationService,
@@ -384,6 +413,129 @@ export class AnalyticsService {
       order: { occurredAt: 'DESC', ledger: 'DESC' },
       take: options.limit ?? 100,
     });
+  }
+
+  /**
+   * Persist a single video player telemetry event (play, pause, seek, ended).
+   * `userId` is optional so anonymous previews can still be tracked.
+   */
+  async recordVideoEvent(
+    dto: RecordVideoEventDto,
+    userId?: string,
+  ): Promise<VideoEvent> {
+    const record = this.videoEventRepo.create({
+      lessonId: dto.lessonId,
+      userId: userId ?? null,
+      eventType: dto.event_type,
+      timestampSeconds: Math.max(0, Math.round(Number(dto.timestamp_seconds) || 0)),
+    });
+
+    const saved = await this.videoEventRepo.save(record);
+    await this.cache.del(`${this.CACHE_PREFIX}video-heatmap:${dto.lessonId}`);
+    return saved;
+  }
+
+  /**
+   * Aggregate raw video events for a lesson into a heatmap: a completion
+   * percentage (share of sessions that reached the end) and the most-replayed
+   * segment (the bucket with the most seek events).
+   */
+  async getVideoHeatmap(lessonId: string): Promise<VideoHeatmap> {
+    const cacheKey = `${this.CACHE_PREFIX}video-heatmap:${lessonId}`;
+    const cached = await this.cache.get<VideoHeatmap>(cacheKey);
+    if (cached) return cached;
+
+    const events = await this.videoEventRepo.find({ where: { lessonId } });
+
+    const bucketCounts = new Map<number, number>();
+    const seekCounts = new Map<number, number>();
+    const sessions = new Set<string>();
+    let endedSessions = 0;
+
+    for (const event of events) {
+      const bucketStart =
+        Math.floor(event.timestampSeconds / VIDEO_HEATMAP_BUCKET_SECONDS) *
+        VIDEO_HEATMAP_BUCKET_SECONDS;
+
+      bucketCounts.set(bucketStart, (bucketCounts.get(bucketStart) ?? 0) + 1);
+
+      if (event.eventType === VideoEventType.SEEK) {
+        seekCounts.set(bucketStart, (seekCounts.get(bucketStart) ?? 0) + 1);
+      }
+
+      // Group events into sessions per user; anonymous events each stand alone.
+      const sessionKey = event.userId ?? `anon:${event.id}`;
+      sessions.add(sessionKey);
+      if (event.eventType === VideoEventType.ENDED) {
+        endedSessions++;
+      }
+    }
+
+    const buckets = Array.from(bucketCounts.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([startSeconds, eventCount]) => ({
+        startSeconds,
+        endSeconds: startSeconds + VIDEO_HEATMAP_BUCKET_SECONDS,
+        eventCount,
+      }));
+
+    let mostReplayedSegment: VideoHeatmap['mostReplayedSegment'] = null;
+    for (const [startSeconds, seekCount] of seekCounts.entries()) {
+      if (!mostReplayedSegment || seekCount > mostReplayedSegment.seekCount) {
+        mostReplayedSegment = {
+          startSeconds,
+          endSeconds: startSeconds + VIDEO_HEATMAP_BUCKET_SECONDS,
+          seekCount,
+        };
+      }
+    }
+
+    const totalSessions = sessions.size;
+    const completionPercentage =
+      totalSessions > 0
+        ? Math.round((endedSessions / totalSessions) * 10000) / 100
+        : 0;
+
+    const heatmap: VideoHeatmap = {
+      lessonId,
+      totalEvents: events.length,
+      totalSessions,
+      completionPercentage,
+      mostReplayedSegment,
+      buckets,
+    };
+
+    await this.cache.set(cacheKey, heatmap, this.CACHE_TTL);
+    return heatmap;
+  }
+
+  /**
+   * Daily: purge raw video events older than the retention window. Aggregated
+   * heatmaps remain available via `getVideoHeatmap`.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  async purgeOldVideoEvents(): Promise<void> {
+    const lockKey = 'lock:cron:analytics:purgeOldVideoEvents';
+    const result = await this.distributedLockService.withLock(lockKey, async () => {
+      const cutoff = new Date(Date.now() - VIDEO_EVENT_RETENTION_DAYS * 86400_000);
+      const deleted = await this.videoEventRepo
+        .createQueryBuilder()
+        .delete()
+        .from(VideoEvent)
+        .where('createdAt < :cutoff', { cutoff })
+        .execute();
+
+      const count = deleted.affected ?? 0;
+      if (count > 0) {
+        this.logger.log(
+          `Purged ${count} video event(s) older than ${VIDEO_EVENT_RETENTION_DAYS} days`,
+        );
+      }
+    }, 60);
+
+    if (result === null) {
+      this.logger.debug('Skipping video event purge because another instance holds the lock');
+    }
   }
 
   /** Hourly: aggregate all courses */

@@ -73,6 +73,40 @@ export class InstructorApplicationsController {
     return this.service.findAll(status);
   }
 
+  @Patch(':id/approve')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Approve an instructor application and assign INSTRUCTOR role (admin)' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  @ApiResponse({ status: 200, description: 'Application approved; INSTRUCTOR role assigned' })
+  @ApiResponse({ status: 400, description: 'Already reviewed' })
+  @ApiResponse({ status: 404, description: 'Application not found' })
+  approve(@Param('id') id: string, @Request() req: { user: { id: string } }) {
+    return this.service.approve(id, req.user.id);
+  }
+
+  @Patch(':id/reject')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Reject an instructor application with a reason (admin)' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  @ApiResponse({ status: 200, description: 'Application rejected; applicant notified with reason' })
+  @ApiResponse({ status: 400, description: 'Already reviewed or missing reason' })
+  @ApiResponse({ status: 404, description: 'Application not found' })
+  reject(
+    @Param('id') id: string,
+    @Body() dto: ReviewApplicationDto,
+    @Request() req: { user: { id: string } }
+  ) {
+    return this.service.reject(id, req.user.id, dto);
+  }
+
   @Patch(':id/review')
   @UseGuards(RolesGuard)
   @Roles('admin')

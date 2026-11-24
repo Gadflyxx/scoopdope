@@ -2,6 +2,11 @@
   "name": "handsoff-app",
   "version": "1.0.0",
   "private": true,
+  "workspaces": [
+    "packages/types",
+    "apps/frontend",
+    "apps/backend"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",

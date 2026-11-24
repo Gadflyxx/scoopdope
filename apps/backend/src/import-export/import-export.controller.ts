@@ -3,8 +3,11 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Post,
+  Query,
   Res,
   UploadedFile,
   UploadedFiles,
@@ -13,7 +16,7 @@ import {
   Request,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { diskStorage } from 'multer';
 import * as os from 'os';
@@ -166,5 +169,63 @@ export class ImportExportController {
   @ApiResponse({ status: 500, description: 'Internal server error' })
   getJobStatus(@Param('jobId') jobId: string) {
     return this.service.getJobStatus(jobId);
+  }
+}
+
+/**
+ * GDPR Article 20 data-portability endpoints.
+ *
+ * `POST /v1/users/me/export` queues a data export job for the authenticated
+ * user and emails a signed download link. The link expires after 48 hours and
+ * the underlying ZIP is deleted at the same time. Requests are rate-limited to
+ * one per 30 days.
+ *
+ * `GET /v1/users/me/export/download` validates the signed URL and expiry before
+ * streaming the ZIP back to the caller.
+ */
+@ApiTags('users')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
+@Controller('users')
+export class UserDataExportController {
+  constructor(private readonly service: ImportExportService) {}
+
+  @Post('me/export')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({ summary: 'Request a GDPR data export (queues a job and emails a download link)' })
+  @ApiResponse({ status: 202, description: 'Export queued' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 429, description: 'Export already requested within the last 30 days' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  async requestExport(@Request() req: { user: { id: string } }) {
+    const result = await this.service.requestExport(req.user.id);
+    return {
+      jobId: result.jobId,
+      status: result.status,
+      expiresAt: result.expiresAt,
+    };
+  }
+
+  @Get('me/export/download')
+  @ApiOperation({ summary: 'Download a GDPR data export via a signed, expiring link' })
+  @ApiQuery({ name: 'token', required: true, description: 'Signed download token from the export email' })
+  @ApiResponse({ status: 200, description: 'ZIP stream' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @ApiResponse({ status: 404, description: 'Export not found or expired' })
+  @ApiResponse({ status: 410, description: 'Download link expired' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  async downloadExport(
+    @Query('token') token: string,
+    @Request() req: { user: { id: string } },
+    @Res() res: Response
+  ) {
+    if (!token) throw new BadRequestException('Missing download token');
+    const { stream, filename } = await this.service.openExportDownload(token, req.user.id);
+    res
+      .setHeader('Content-Type', 'application/zip')
+      .setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    stream.pipe(res);
   }
 }

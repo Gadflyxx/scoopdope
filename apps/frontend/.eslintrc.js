@@ -29,6 +29,7 @@ module.exports = {
       'error',
       { argsIgnorePattern: '^_' },
     ],
+    '@typescript-eslint/ban-ts-comment': 'error',
     'react/react-in-jsx-scope': 'off',
     'react/prop-types': 'off',
   },

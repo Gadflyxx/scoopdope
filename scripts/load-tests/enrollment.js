@@ -13,6 +13,10 @@ export const options = {
     { duration: '30s', target: 0 },
   ],
   thresholds: {
+    // Baselines (see scripts/load-tests/baselines.json):
+    //   overall p95 = 500ms, p99 = 1000ms
+    //   enroll endpoint p95 = 667ms
+    // Thresholds fail when p95 exceeds baseline by more than 20%.
     http_req_duration: ['p(95)<600', 'p(99)<1200'],
     http_req_failed: ['rate<0.05'],
     'http_req_duration{endpoint:enroll}': ['p(95)<800'],

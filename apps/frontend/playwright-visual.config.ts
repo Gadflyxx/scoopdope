@@ -35,6 +35,38 @@ export default defineConfig({
       name: 'mobile-chrome',
       use: { ...devices['Pixel 5'] },
     },
+    // Course player visual regression projects at key breakpoints.
+    // These capture the lesson page and assert no horizontal scroll.
+    {
+      name: 'course-player-375',
+      testMatch: /course-player.*\.spec\.ts/,
+      use: {
+        ...devices['iPhone SE'],
+        // iPhone SE is 375 x 667
+        viewport: { width: 375, height: 667 },
+        isMobile: true,
+        hasTouch: true,
+      },
+    },
+    {
+      name: 'course-player-768',
+      testMatch: /course-player.*\.spec\.ts/,
+      use: {
+        ...devices['iPad (gen 7)'],
+        // iPad portrait is 768 x 1024
+        viewport: { width: 768, height: 1024 },
+        isMobile: true,
+        hasTouch: true,
+      },
+    },
+    {
+      name: 'course-player-1280',
+      testMatch: /course-player.*\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1280, height: 800 },
+      },
+    },
   ],
 
   webServer: process.env.CI

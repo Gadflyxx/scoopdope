@@ -59,6 +59,23 @@ export class InstructorAnalyticsController {
   }
 
   /**
+   * Get summary analytics (enrollments, revenue, completion rate by course,
+   * plus a 12-week time-series breakdown) for the authenticated instructor.
+   * GET /v1/instructor-analytics/summary
+   */
+  @Get('instructor-analytics/summary')
+  @UseGuards(RolesGuard)
+  @Roles('instructor', 'admin')
+  @ApiOperation({ summary: 'Get summary analytics for instructor' })
+  @ApiResponse({ status: 200, description: 'Summary analytics returned' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — instructor or admin only' })
+  getSummary(@Request() req: any) {
+    const instructorId = req.user.id ?? req.user.sub;
+    return this.instructorAnalyticsService.getSummary(instructorId);
+  }
+
+  /**
    * Get detailed analytics for a specific course (instructor or admin).
    * GET /v1/courses/:id/instructor-analytics
    */
@@ -83,6 +100,38 @@ export class InstructorAnalyticsController {
     const instructorId = req.user.id ?? req.user.sub;
     const isAdmin = req.user.role === 'admin';
     return this.instructorAnalyticsService.getCourseAnalytics(
+      courseId,
+      filter,
+      instructorId,
+      isAdmin,
+    );
+  }
+
+  /**
+   * Get per-lesson video heatmap data for a course (instructor or admin).
+   * GET /v1/courses/:id/instructor-analytics/video-heatmap
+   */
+  @Get('courses/:id/instructor-analytics/video-heatmap')
+  @UseGuards(RolesGuard)
+  @Roles('instructor', 'admin')
+  @ApiOperation({ summary: 'Get per-lesson video heatmap for a course' })
+  @ApiParam({ name: 'id', description: 'Course ID' })
+  @ApiQuery({ name: 'from', required: false, description: 'Start date (ISO 8601)' })
+  @ApiQuery({ name: 'to', required: false, description: 'End date (ISO 8601)' })
+  @ApiResponse({ status: 200, description: 'Video heatmap returned' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — instructor or admin only' })
+  @ApiResponse({ status: 404, description: 'Course not found' })
+  getCourseVideoHeatmap(
+    @Request() req: any,
+    @Param('id') courseId: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const filter = this.parseFilter(from, to);
+    const instructorId = req.user.id ?? req.user.sub;
+    const isAdmin = req.user.role === 'admin';
+    return this.instructorAnalyticsService.getCourseVideoHeatmap(
       courseId,
       filter,
       instructorId,

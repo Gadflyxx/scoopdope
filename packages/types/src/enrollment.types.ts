@@ -11,6 +11,10 @@ export interface Enrollment {
   userId: string;
   courseId: string;
   enrolledAt: string;
+  /** Content version frozen at enrollment time (null if not yet set) */
+  enrolledVersionNumber: number | null;
+  /** Latest published content version of the course */
+  latestVersion: number;
 }
 
 /**
@@ -45,4 +49,42 @@ export interface ProgressRecord {
   lessonId: string | null;
   progressPct: number;
   updatedAt: string;
+}
+
+/**
+ * A single user/course pair to enroll as part of a batch.
+ */
+export interface BatchEnrollmentItem {
+  /** UUID of the user to enroll */
+  userId: string;
+  /** UUID of the course to enroll the user in */
+  courseId: string;
+}
+
+/**
+ * Request body for submitting a batch enrollment job.
+ * Accepts up to 500 items.
+ */
+export interface BatchEnrollmentRequest {
+  items: BatchEnrollmentItem[];
+}
+
+/**
+ * Lifecycle status of a batch enrollment job.
+ */
+export type BatchEnrollmentJobStatus =
+  | 'pending'
+  | 'processing'
+  | 'completed'
+  | 'failed';
+
+/**
+ * Per-user outcome of a batch enrollment job.
+ */
+export interface BatchEnrollmentResult {
+  userId: string;
+  courseId: string;
+  success: boolean;
+  /** Human-readable error message when `success` is false */
+  error?: string;
 }

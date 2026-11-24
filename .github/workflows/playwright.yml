@@ -134,9 +134,17 @@ jobs:
         run: npm ci
         working-directory: apps/frontend
 
-      - name: Build frontend
-        run: npm run build
+      - name: Build frontend (with bundle analysis)
+        run: ANALYZE=true npm run build
         working-directory: apps/frontend
+
+      - name: Upload bundle analysis report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-analysis
+          path: apps/frontend/.next/analyze/
+          retention-days: 14
 
   e2e:
     name: Playwright Tests
@@ -233,7 +241,10 @@ jobs:
         run: npx playwright install --with-deps chromium firefox
         working-directory: apps/frontend
 
-      - name: Run Playwright tests
+      # @axe-core/playwright is a devDependency installed by `npm ci` above.
+      # Every spec calls checkA11y(), which throws on any axe violation and
+      # therefore fails this job (and CI) on accessibility regressions.
+      - name: Run Playwright tests (with axe accessibility checks)
         run: npm run test:e2e:ci
         working-directory: apps/frontend
 
@@ -243,4 +254,17 @@ jobs:
         with:
           name: playwright-report
           path: apps/frontend/playwright-report/
+          retention-days: 14
+
+      # ── Visual regression (responsive breakpoints) ───────────────────────────
+      - name: Run Playwright visual regression tests
+        run: npx playwright test --config=playwright-visual.config.ts
+        working-directory: apps/frontend
+
+      - name: Upload visual regression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-report
+          path: apps/frontend/playwright-report-visual/
           retention-days: 14

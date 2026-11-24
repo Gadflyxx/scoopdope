@@ -17,10 +17,13 @@ const applicationMessages = {
       'Thank you for applying to become an instructor. We will review your application and email you when a decision is made.',
     approvedSubject: 'Application Approved',
     approvedTitle: 'Your instructor application is approved',
-    approvedBody: 'Congratulations! You are now approved to teach on ScoopDope.',
+    approvedBody:
+      'Congratulations! The instructor role has been granted to your account and you can start creating courses right away.',
     rejectedSubject: 'Application Rejected',
     rejectedTitle: 'Your instructor application was not approved',
     rejectedBody: 'Thank you for your interest in teaching on ScoopDope. Reviewer feedback:',
+    rejectedReasonLabel: 'Reason',
+    rejectedNoReason: 'No specific reason was provided.',
     greeting: 'Hello',
   },
   es: {
@@ -30,10 +33,13 @@ const applicationMessages = {
       'Gracias por solicitar convertirte en instructor. Revisaremos tu solicitud y te enviaremos un correo cuando tomemos una decisión.',
     approvedSubject: 'Solicitud aprobada',
     approvedTitle: 'Tu solicitud para ser instructor ha sido aprobada',
-    approvedBody: '¡Enhorabuena! Ya puedes impartir cursos en ScoopDope.',
+    approvedBody:
+      '¡Enhorabuena! Se ha concedido el rol de instructor a tu cuenta y ya puedes empezar a crear cursos.',
     rejectedSubject: 'Solicitud rechazada',
     rejectedTitle: 'Tu solicitud para ser instructor no ha sido aprobada',
     rejectedBody: 'Gracias por tu interés en enseñar en ScoopDope. Comentarios del revisor:',
+    rejectedReasonLabel: 'Motivo',
+    rejectedNoReason: 'No se proporcionó un motivo específico.',
     greeting: 'Hola',
   },
   fr: {
@@ -43,11 +49,14 @@ const applicationMessages = {
       'Merci d’avoir souhaité devenir formateur. Nous étudierons votre candidature et vous informerons par e-mail de notre décision.',
     approvedSubject: 'Candidature approuvée',
     approvedTitle: 'Votre candidature pour enseigner est approuvée',
-    approvedBody: 'Félicitations ! Vous pouvez désormais enseigner sur ScoopDope.',
+    approvedBody:
+      'Félicitations ! Le rôle de formateur a été attribué à votre compte et vous pouvez dès maintenant créer des cours.',
     rejectedSubject: 'Candidature rejetée',
     rejectedTitle: 'Votre candidature pour enseigner n’a pas été approuvée',
     rejectedBody:
       'Merci de votre intérêt pour ScoopDope. Commentaire de la personne chargée de l’examen :',
+    rejectedReasonLabel: 'Motif',
+    rejectedNoReason: 'Aucun motif précis n’a été fourni.',
     greeting: 'Bonjour',
   },
   ar: {
@@ -57,10 +66,127 @@ const applicationMessages = {
       'شكرًا لتقديم طلبك لتصبح مدرّسًا. سنراجع طلبك ونرسل إليك بريدًا إلكترونيًا عند اتخاذ القرار.',
     approvedSubject: 'تمت الموافقة على الطلب',
     approvedTitle: 'تمت الموافقة على طلبك لتصبح مدرّسًا',
-    approvedBody: 'تهانينا! يمكنك الآن التدريس على ScoopDope.',
+    approvedBody:
+      'تهانينا! تم منح دور المدرّس لحسابك ويمكنك البدء في إنشاء الدورات على الفور.',
     rejectedSubject: 'تم رفض الطلب',
     rejectedTitle: 'لم تتم الموافقة على طلبك لتصبح مدرّسًا',
     rejectedBody: 'شكرًا لاهتمامك بالتدريس على ScoopDope. ملاحظات المراجع:',
+    rejectedReasonLabel: 'السبب',
+    rejectedNoReason: 'لم يتم تقديم سبب محدد.',
+    greeting: 'مرحبًا',
+  },
+};
+
+const qaMessages = {
+  en: {
+    newQuestionSubject: 'New question on your lesson',
+    newQuestionTitle: 'A learner asked a question',
+    newQuestionBody: 'A new question was posted on your lesson:',
+    questionAnsweredSubject: 'Your question was answered',
+    questionAnsweredTitle: 'Your question has an answer',
+    questionAnsweredBody: 'An instructor answered your question:',
+    questionLabel: 'Question',
+    answerLabel: 'Answer',
+    lessonLabel: 'Lesson',
+    greeting: 'Hello',
+  },
+  es: {
+    newQuestionSubject: 'Nueva pregunta en tu lección',
+    newQuestionTitle: 'Un estudiante ha hecho una pregunta',
+    newQuestionBody: 'Se ha publicado una nueva pregunta en tu lección:',
+    questionAnsweredSubject: 'Tu pregunta ha sido respondida',
+    questionAnsweredTitle: 'Tu pregunta tiene respuesta',
+    questionAnsweredBody: 'Un instructor ha respondido a tu pregunta:',
+    questionLabel: 'Pregunta',
+    answerLabel: 'Respuesta',
+    lessonLabel: 'Lección',
+    greeting: 'Hola',
+  },
+  fr: {
+    newQuestionSubject: 'Nouvelle question sur votre leçon',
+    newQuestionTitle: 'Un apprenant a posé une question',
+    newQuestionBody: 'Une nouvelle question a été publiée sur votre leçon :',
+    questionAnsweredSubject: 'Votre question a reçu une réponse',
+    questionAnsweredTitle: 'Votre question a une réponse',
+    questionAnsweredBody: 'Un formateur a répondu à votre question :',
+    questionLabel: 'Question',
+    answerLabel: 'Réponse',
+    lessonLabel: 'Leçon',
+    greeting: 'Bonjour',
+  },
+  ar: {
+    newQuestionSubject: 'سؤال جديد في درسك',
+    newQuestionTitle: 'طرح أحد المتعلمين سؤالًا',
+    newQuestionBody: 'تم نشر سؤال جديد في درسك:',
+    questionAnsweredSubject: 'تمت الإجابة على سؤالك',
+    questionAnsweredTitle: 'سؤالك لديه إجابة',
+    questionAnsweredBody: 'أجاب مدرّس على سؤالك:',
+    questionLabel: 'السؤال',
+    answerLabel: 'الإجابة',
+    lessonLabel: 'الدرس',
+    greeting: 'مرحبًا',
+  },
+};
+
+const moderationMessages = {
+  en: {
+    submittedSubject: 'Course submitted for review',
+    submittedTitle: 'A course is awaiting moderation',
+    submittedBody: 'An instructor submitted a course for review:',
+    approvedSubject: 'Course approved',
+    approvedTitle: 'Your course has been approved',
+    approvedBody: 'Your course has been reviewed and published:',
+    rejectedSubject: 'Course rejected',
+    rejectedTitle: 'Your course was not approved',
+    rejectedBody: 'Your course was reviewed and rejected:',
+    courseLabel: 'Course',
+    instructorLabel: 'Instructor',
+    notesLabel: 'Reviewer notes',
+    greeting: 'Hello',
+  },
+  es: {
+    submittedSubject: 'Curso enviado para revisión',
+    submittedTitle: 'Un curso está pendiente de moderación',
+    submittedBody: 'Un instructor ha enviado un curso para revisión:',
+    approvedSubject: 'Curso aprobado',
+    approvedTitle: 'Tu curso ha sido aprobado',
+    approvedBody: 'Tu curso ha sido revisado y publicado:',
+    rejectedSubject: 'Curso rechazado',
+    rejectedTitle: 'Tu curso no ha sido aprobado',
+    rejectedBody: 'Tu curso ha sido revisado y rechazado:',
+    courseLabel: 'Curso',
+    instructorLabel: 'Instructor',
+    notesLabel: 'Comentarios del revisor',
+    greeting: 'Hola',
+  },
+  fr: {
+    submittedSubject: 'Cours soumis à examen',
+    submittedTitle: 'Un cours est en attente de modération',
+    submittedBody: 'Un formateur a soumis un cours à examen :',
+    approvedSubject: 'Cours approuvé',
+    approvedTitle: 'Votre cours a été approuvé',
+    approvedBody: 'Votre cours a été examiné et publié :',
+    rejectedSubject: 'Cours rejeté',
+    rejectedTitle: 'Votre cours n’a pas été approuvé',
+    rejectedBody: 'Votre cours a été examiné et rejeté :',
+    courseLabel: 'Cours',
+    instructorLabel: 'Formateur',
+    notesLabel: 'Commentaire de la personne chargée de l’examen',
+    greeting: 'Bonjour',
+  },
+  ar: {
+    submittedSubject: 'تم إرسال الدورة للمراجعة',
+    submittedTitle: 'دورة بانتظار المراجعة',
+    submittedBody: 'أرسل مدرّس دورة للمراجعة:',
+    approvedSubject: 'تمت الموافقة على الدورة',
+    approvedTitle: 'تمت الموافقة على دورتك',
+    approvedBody: 'تمت مراجعة دورتك ونشرها:',
+    rejectedSubject: 'تم رفض الدورة',
+    rejectedTitle: 'لم تتم الموافقة على دورتك',
+    rejectedBody: 'تمت مراجعة دورتك ورفضها:',
+    courseLabel: 'الدورة',
+    instructorLabel: 'المدرّس',
+    notesLabel: 'ملاحظات المراجع',
     greeting: 'مرحبًا',
   },
 };
@@ -104,6 +230,8 @@ const waitlistMessages = {
 
 type ApplicationLocale = keyof typeof applicationMessages;
 type WaitlistLocale = keyof typeof waitlistMessages;
+type QaLocale = keyof typeof qaMessages;
+type ModerationLocale = keyof typeof moderationMessages;
 
 const isRtlLocale = (locale?: string) => (locale || 'en').split('-')[0].toLowerCase() === 'ar';
 
@@ -147,15 +275,17 @@ const wrapEmail = (locale: string | undefined, innerHtml: string) => {
 
 const applicationTemplate = (
   kind: 'received' | 'approved' | 'rejected',
-  data: { userName: string; locale?: string; adminNote?: string | null }
+  data: { userName: string; locale?: string; adminNote?: string | null; rejectionReason?: string | null }
 ) => {
   const locale = (data.locale || 'en').split('-')[0] as ApplicationLocale;
   const messages = applicationMessages[locale] || applicationMessages.en;
   const title = messages[`${kind}Title`];
   const body = messages[`${kind}Body`];
+  const reason = (data.rejectionReason ?? data.adminNote ?? '').trim();
   const reviewerFeedback =
-    kind === 'rejected' && data.adminNote
-      ? `<blockquote>${escapeHtml(data.adminNote)}</blockquote>`
+    kind === 'rejected'
+      ? `<p><strong>${messages.rejectedReasonLabel}:</strong></p>
+      <blockquote>${escapeHtml(reason || messages.rejectedNoReason)}</blockquote>`
       : '';
 
   const inner = `
@@ -170,6 +300,80 @@ const applicationTemplate = (
   };
 };
 
+const qaTemplate = (
+  kind: 'newQuestion' | 'questionAnswered',
+  data: {
+    userName: string;
+    question: string;
+    lessonTitle?: string | null;
+    answer?: string | null;
+    locale?: string;
+  }
+) => {
+  const locale = (data.locale || 'en').split('-')[0] as QaLocale;
+  const messages = qaMessages[locale] || qaMessages.en;
+  const title = messages[`${kind}Title`];
+  const body = messages[`${kind}Body`];
+  const lessonLine = data.lessonTitle
+    ? `<p><strong>${messages.lessonLabel}:</strong> ${escapeHtml(data.lessonTitle)}</p>`
+    : '';
+  const answerBlock =
+    kind === 'questionAnswered' && data.answer
+      ? `<p><strong>${messages.answerLabel}:</strong></p><blockquote>${escapeHtml(data.answer)}</blockquote>`
+      : '';
+
+  const inner = `
+      <h2>${title}</h2>
+      <p>${messages.greeting} ${escapeHtml(data.userName)},</p>
+      <p>${body}</p>
+      ${lessonLine}
+      <p><strong>${messages.questionLabel}:</strong></p>
+      <blockquote>${escapeHtml(data.question)}</blockquote>
+      ${answerBlock}`;
+
+  return {
+    subject: messages[`${kind}Subject`],
+    html: wrapEmail(locale, inner),
+  };
+};
+
+const moderationTemplate = (
+  kind: 'submitted' | 'approved' | 'rejected',
+  data: {
+    userName: string;
+    courseTitle: string;
+    instructorName?: string | null;
+    notes?: string | null;
+    locale?: string;
+  }
+) => {
+  const locale = (data.locale || 'en').split('-')[0] as ModerationLocale;
+  const messages = moderationMessages[locale] || moderationMessages.en;
+  const title = messages[`${kind}Title`];
+  const body = messages[`${kind}Body`];
+  const instructorLine =
+    kind === 'submitted' && data.instructorName
+      ? `<p><strong>${messages.instructorLabel}:</strong> ${escapeHtml(data.instructorName)}</p>`
+      : '';
+  const notesBlock =
+    kind === 'rejected' && data.notes
+      ? `<p><strong>${messages.notesLabel}:</strong></p><blockquote>${escapeHtml(data.notes)}</blockquote>`
+      : '';
+
+  const inner = `
+      <h2>${title}</h2>
+      <p>${messages.greeting} ${escapeHtml(data.userName)},</p>
+      <p>${body}</p>
+      <p><strong>${messages.courseLabel}:</strong> ${escapeHtml(data.courseTitle)}</p>
+      ${instructorLine}
+      ${notesBlock}`;
+
+  return {
+    subject: messages[`${kind}Subject`],
+    html: wrapEmail(locale, inner),
+  };
+};
+
 export const emailTemplates = {
   applicationReceived: (data: { userName: string; locale?: string }) =>
     applicationTemplate('received', data),
@@ -177,8 +381,48 @@ export const emailTemplates = {
   applicationApproved: (data: { userName: string; locale?: string }) =>
     applicationTemplate('approved', data),
 
-  applicationRejected: (data: { userName: string; locale?: string; adminNote?: string | null }) =>
-    applicationTemplate('rejected', data),
+  applicationRejected: (data: {
+    userName: string;
+    locale?: string;
+    adminNote?: string | null;
+    rejectionReason?: string | null;
+  }) => applicationTemplate('rejected', data),
+
+  newQuestion: (data: {
+    userName: string;
+    question: string;
+    lessonTitle?: string | null;
+    locale?: string;
+  }) => qaTemplate('newQuestion', data),
+
+  questionAnswered: (data: {
+    userName: string;
+    question: string;
+    answer?: string | null;
+    lessonTitle?: string | null;
+    locale?: string;
+  }) => qaTemplate('questionAnswered', data),
+
+  courseSubmittedForReview: (data: {
+    userName: string;
+    courseTitle: string;
+    instructorName?: string | null;
+    locale?: string;
+  }) => moderationTemplate('submitted', data),
+
+  courseApproved: (data: {
+    userName: string;
+    courseTitle: string;
+    notes?: string | null;
+    locale?: string;
+  }) => moderationTemplate('approved', data),
+
+  courseRejected: (data: {
+    userName: string;
+    courseTitle: string;
+    notes?: string | null;
+    locale?: string;
+  }) => moderationTemplate('rejected', data),
 
   enrollment: (data: { userName: string; courseTitle: string; courseUrl: string; unsubscribeUrl: string; locale?: string }): EmailTemplate => {
     const html = wrapEmail(
@@ -282,41 +526,47 @@ export const emailTemplates = {
     };
   },
 
-  supportTicketCreated: (data: { userName: string; ticketSubject: string; ticketId: string; ticketUrl: string; locale?: string }): EmailTemplate => {
+  batchEnrollmentComplete: (data: { userName: string; jobId: string; total: number; processed: number; failed: number; statusUrl: string; unsubscribeUrl: string; locale?: string }): EmailTemplate => {
     const html = wrapEmail(
       data.locale,
       `
-        <h2>🎫 Support Ticket Received</h2>
-        <p>Hi ${escapeHtml(data.userName)},</p>
-        <p>We've received your support request and our team will get back to you soon.</p>
+        <h2>✅ Batch Enrollment Complete</h2>
+        <p>Hi ${data.userName},</p>
+        <p>Your batch enrollment job <code>${data.jobId}</code> has finished processing.</p>
         <ul>
-          <li><strong>Ticket:</strong> #${escapeHtml(data.ticketId)}</li>
-          <li><strong>Subject:</strong> ${escapeHtml(data.ticketSubject)}</li>
+          <li><strong>Total enrollments:</strong> ${data.total}</li>
+          <li><strong>Processed:</strong> ${data.processed}</li>
+          <li><strong>Failed:</strong> ${data.failed}</li>
         </ul>
-        <a href="${data.ticketUrl}" style="background:#4F46E5;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">View Ticket</a>`
+        <a href="${data.statusUrl}" style="background:#4F46E5;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">View Results</a>
+        <p style="margin-top:40px;font-size:12px;color:#999">
+          <a href="${data.unsubscribeUrl}">Unsubscribe</a>
+        </p>`
     );
 
     return {
-      subject: `Support ticket received: "${data.ticketSubject}"`,
+      subject: `Batch enrollment job ${data.jobId} completed`,
       html,
       text: htmlToPlainText(html),
     };
   },
 
-  supportTicketReply: (data: { userName: string; ticketSubject: string; ticketId: string; replyExcerpt: string; ticketUrl: string; locale?: string }): EmailTemplate => {
+  dataExportReady: (data: { userName: string; downloadUrl: string; expiresAt: string; unsubscribeUrl: string; locale?: string }): EmailTemplate => {
     const html = wrapEmail(
       data.locale,
       `
-        <h2>💬 New reply to your support ticket</h2>
-        <p>Hi ${escapeHtml(data.userName)},</p>
-        <p>A support agent has replied to your ticket <strong>#${escapeHtml(data.ticketId)}</strong>:</p>
-        <p><strong>${escapeHtml(data.ticketSubject)}</strong></p>
-        <blockquote>${escapeHtml(data.replyExcerpt)}</blockquote>
-        <a href="${data.ticketUrl}" style="background:#4F46E5;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">View Reply</a>`
+        <h2>📦 Your Data Export is Ready</h2>
+        <p>Hi ${data.userName},</p>
+        <p>Your personal data export is ready to download. The ZIP archive contains separate JSON files for each data category.</p>
+        <a href="${data.downloadUrl}" style="background:#4F46E5;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">Download Export</a>
+        <p>This download link expires on <strong>${data.expiresAt}</strong> (48 hours after it was generated).</p>
+        <p style="margin-top:40px;font-size:12px;color:#999">
+          <a href="${data.unsubscribeUrl}">Unsubscribe</a>
+        </p>`
     );
 
     return {
-      subject: `New reply on your support ticket: "${data.ticketSubject}"`,
+      subject: 'Your data export is ready',
       html,
       text: htmlToPlainText(html),
     };

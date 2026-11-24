@@ -60,6 +60,44 @@ export class PresenceService {
     this.logger.log(`instructor ${instructorId} left course ${courseId}`);
   }
 
+  /**
+   * Fully remove a participant from every course they are tracked in.
+   * Used by gateway disconnect handling so stale client references do not
+   * accumulate in memory. Empty course maps are pruned as well.
+   * Returns the course ids the participant was removed from.
+   */
+  remove(instructorId: string): string[] {
+    const removedFrom: string[] = [];
+    for (const [courseId, courseMap] of this.presence) {
+      if (courseMap.delete(instructorId)) {
+        removedFrom.push(courseId);
+        if (courseMap.size === 0) this.presence.delete(courseId);
+      }
+    }
+    if (removedFrom.length > 0) {
+      this.logger.log(
+        `instructor ${instructorId} removed from courses ${removedFrom.join(', ')}`,
+      );
+    }
+    return removedFrom;
+  }
+
+  /**
+   * Report the current in-memory map sizes. Intended for tests that assert
+   * memory/state returns to baseline after clients disconnect.
+   */
+  getStats(): { courseCount: number; participantCount: number; versionCount: number } {
+    let participantCount = 0;
+    for (const courseMap of this.presence.values()) {
+      participantCount += courseMap.size;
+    }
+    return {
+      courseCount: this.presence.size,
+      participantCount,
+      versionCount: this.courseVersions.size,
+    };
+  }
+
   /** Refresh the last-seen heartbeat for an instructor. */
   touch(courseId: string, instructorId: string): void {
     const entry = this.presence.get(courseId)?.get(instructorId);
@@ -119,5 +157,90 @@ export class PresenceService {
 
   getCourseVersion(courseId: string): number {
     return this.courseVersions.get(courseId) ?? 0;
+  }
+}
+
+/** Maximum number of concurrent collaborators allowed in a session. */
+export const MAX_COLLABORATORS = 5;
+
+export interface SessionParticipant {
+  userId: string;
+  sessionId: string;
+  joinedAt: number;
+  lastSeenAt: number;
+}
+
+export interface SessionJoinResult {
+  accepted: boolean;
+  participants: SessionParticipant[];
+  /** True when the session is at capacity and the joiner was rejected. */
+  full: boolean;
+}
+
+/**
+ * In-memory tracker of real-time collaboration session participants.
+ *
+ * Enforces the per-session collaborator cap and reports when a session
+ * becomes empty so the gateway can persist the final content.
+ */
+@Injectable()
+export class SessionPresenceService {
+  private readonly logger = new Logger(SessionPresenceService.name);
+  private readonly sessions = new Map<string, Map<string, SessionParticipant>>();
+
+  /**
+   * Register a participant in a session. Returns full=true (and does not add
+   * the participant) when the session already has MAX_COLLABORATORS members.
+   * Re-joining an existing participant is idempotent.
+   */
+  join(sessionId: string, userId: string): SessionJoinResult {
+    let sessionMap = this.sessions.get(sessionId);
+    if (!sessionMap) {
+      sessionMap = new Map();
+      this.sessions.set(sessionId, sessionMap);
+    }
+    if (!sessionMap.has(userId) && sessionMap.size >= MAX_COLLABORATORS) {
+      this.logger.warn(`session ${sessionId} is full; rejecting user ${userId}`);
+      return { accepted: false, participants: Array.from(sessionMap.values()), full: true };
+    }
+    const now = Date.now();
+    const existing = sessionMap.get(userId);
+    sessionMap.set(userId, {
+      userId,
+      sessionId,
+      joinedAt: existing?.joinedAt ?? now,
+      lastSeenAt: now,
+    });
+    this.logger.log(`user ${userId} joined session ${sessionId}`);
+    return { accepted: true, participants: Array.from(sessionMap.values()), full: false };
+  }
+
+  /**
+   * Remove a participant. Returns the remaining participants and whether the
+   * session is now empty (so the caller can persist final content).
+   */
+  leave(sessionId: string, userId: string): { participants: SessionParticipant[]; empty: boolean } {
+    const sessionMap = this.sessions.get(sessionId);
+    if (!sessionMap) return { participants: [], empty: true };
+    sessionMap.delete(userId);
+    const participants = Array.from(sessionMap.values());
+    const empty = participants.length === 0;
+    if (empty) this.sessions.delete(sessionId);
+    this.logger.log(`user ${userId} left session ${sessionId}${empty ? ' (empty)' : ''}`);
+    return { participants, empty };
+  }
+
+  touch(sessionId: string, userId: string): void {
+    const entry = this.sessions.get(sessionId)?.get(userId);
+    if (entry) entry.lastSeenAt = Date.now();
+  }
+
+  getParticipants(sessionId: string): SessionParticipant[] {
+    const sessionMap = this.sessions.get(sessionId);
+    return sessionMap ? Array.from(sessionMap.values()) : [];
+  }
+
+  count(sessionId: string): number {
+    return this.sessions.get(sessionId)?.size ?? 0;
   }
 }

@@ -6,6 +6,7 @@ import { Cache } from 'cache-manager';
 import { Enrollment } from '../enrollments/enrollment.entity';
 import { Progress } from '../progress/progress.entity';
 import { Lesson } from '../courses/lesson.entity';
+import { Course } from '../courses/course.entity';
 
 export interface DateRangeFilter {
   from?: Date;
@@ -23,6 +24,33 @@ export interface LessonDifficulty {
   moduleId: string;
   dropCount: number;
   avgProgressAtDrop: number;
+}
+
+export interface WeeklyEnrollmentPoint {
+  /** ISO week start date (YYYY-MM-DD, Monday) */
+  weekStart: string;
+  count: number;
+}
+
+export interface InstructorCourseSummaryRow {
+  courseId: string;
+  courseTitle: string;
+  enrollmentCount: number;
+  /** Revenue in USD from paid enrollments */
+  revenue: number;
+  totalCompletions: number;
+  /** Completion rate as a percentage (0-100) */
+  completionRate: number;
+}
+
+export interface InstructorAnalyticsSummary {
+  instructorId: string;
+  totalEnrollments: number;
+  totalRevenue: number;
+  overallCompletionRate: number;
+  courses: InstructorCourseSummaryRow[];
+  /** Weekly enrollment time series for the last 12 weeks (aggregated across courses) */
+  weeklyEnrollments: WeeklyEnrollmentPoint[];
 }
 
 export interface InstructorCourseAnalytics {
@@ -45,13 +73,17 @@ export interface InstructorCourseAnalytics {
   primaryDropoutLesson?: LessonDifficulty;
   /** Top 5 lessons by difficulty (dropout rate) */
   difficultLessons: LessonDifficulty[];
+  /** Per-lesson video engagement heatmap */
+  videoHeatmap: LessonVideoHeatmap[];
 }
 
 @Injectable()
 export class InstructorAnalyticsService {
   private readonly logger = new Logger(InstructorAnalyticsService.name);
   private readonly CACHE_TTL = 300; // 5 minutes
+  private readonly SUMMARY_CACHE_TTL = 60; // 60 seconds — keeps new enrollments fresh
   private readonly CACHE_PREFIX = 'instructor_analytics:';
+  private readonly SUMMARY_WEEKS = 12;
 
   constructor(
     @InjectRepository(Enrollment)
@@ -60,8 +92,106 @@ export class InstructorAnalyticsService {
     private progressRepo: Repository<Progress>,
     @InjectRepository(Lesson)
     private lessonRepo: Repository<Lesson>,
+    @InjectRepository(Course)
+    private courseRepo: Repository<Course>,
     @Inject(CACHE_MANAGER) private cache: Cache,
   ) {}
+
+  /**
+   * Get a compact analytics summary for all courses owned by the instructor.
+   * Returns per-course enrollment count, revenue, completion rate, and a
+   * 12-week weekly enrollment time series. Every query is scoped to the
+   * instructor's own course ids, so cross-instructor access is impossible.
+   */
+  async getSummary(instructorId: string): Promise<InstructorAnalyticsSummary> {
+    const cacheKey = `${this.CACHE_PREFIX}summary:${instructorId}`;
+    const cached = await this.cache.get<InstructorAnalyticsSummary>(cacheKey);
+    if (cached) return cached;
+
+    const courseIds = await this.resolveInstructorCourseIds(instructorId);
+
+    if (!courseIds.length) {
+      const empty: InstructorAnalyticsSummary = {
+        instructorId,
+        totalEnrollments: 0,
+        totalRevenue: 0,
+        overallCompletionRate: 0,
+        courses: [],
+        weeklyEnrollments: this.buildEmptyWeeklySeries(),
+      };
+      await this.cache.set(cacheKey, empty, this.SUMMARY_CACHE_TTL);
+      return empty;
+    }
+
+    const courses = await this.courseRepo.findByIds(courseIds);
+    const courseMap = new Map(courses.map((c) => [c.id, c]));
+
+    const [enrollmentRows, weeklyRows] = await Promise.all([
+      this.enrollmentRepo
+        .createQueryBuilder('e')
+        .where('e.courseId IN (:...courseIds)', { courseIds })
+        .select('e.courseId', 'courseId')
+        .addSelect('COUNT(*)', 'enrollmentCount')
+        .addSelect(
+          'SUM(CASE WHEN e.completedAt IS NOT NULL THEN 1 ELSE 0 END)',
+          'completions',
+        )
+        .addSelect(
+          'SUM(CASE WHEN e.paidAt IS NOT NULL THEN e.amountPaidUsd ELSE 0 END)',
+          'revenue',
+        )
+        .groupBy('e.courseId')
+        .getRawMany<{
+          courseId: string;
+          enrollmentCount: string;
+          completions: string;
+          revenue: string;
+        }>(),
+      this.getWeeklyEnrollmentSeries(courseIds),
+    ]);
+
+    const rowsByCourse = new Map(enrollmentRows.map((r) => [r.courseId, r]));
+
+    const courseRows: InstructorCourseSummaryRow[] = courseIds.map((courseId) => {
+      const row = rowsByCourse.get(courseId);
+      const enrollmentCount = Number(row?.enrollmentCount ?? 0);
+      const totalCompletions = Number(row?.completions ?? 0);
+      const revenue = Math.round(Number(row?.revenue ?? 0) * 100) / 100;
+      const completionRate =
+        enrollmentCount > 0
+          ? Math.round((totalCompletions / enrollmentCount) * 10000) / 100
+          : 0;
+      return {
+        courseId,
+        courseTitle: courseMap.get(courseId)?.title ?? 'Unknown Course',
+        enrollmentCount,
+        revenue,
+        totalCompletions,
+        completionRate,
+      };
+    });
+
+    const totalEnrollments = courseRows.reduce((s, c) => s + c.enrollmentCount, 0);
+    const totalCompletions = courseRows.reduce((s, c) => s + c.totalCompletions, 0);
+    const totalRevenue =
+      Math.round(courseRows.reduce((s, c) => s + c.revenue, 0) * 100) / 100;
+    const overallCompletionRate =
+      totalEnrollments > 0
+        ? Math.round((totalCompletions / totalEnrollments) * 10000) / 100
+        : 0;
+
+    const result: InstructorAnalyticsSummary = {
+      instructorId,
+      totalEnrollments,
+      totalRevenue,
+      overallCompletionRate,
+      courses: courseRows,
+      weeklyEnrollments: weeklyRows,
+    };
+
+    await this.cache.set(cacheKey, result, this.SUMMARY_CACHE_TTL);
+    return result;
+  }
 
   /**
    * Get full analytics dashboard for a specific course, optionally filtered by date range.
@@ -90,6 +220,7 @@ export class InstructorAnalyticsService {
       trend14Days,
       trend30Days,
       difficultLessons,
+      videoHeatmap,
     ] = await Promise.all([
       this.countEnrollments(courseId, filter),
       this.countCompletions(courseId, filter),
@@ -98,6 +229,7 @@ export class InstructorAnalyticsService {
       this.getEnrollmentTrend(courseId, 14),
       this.getEnrollmentTrend(courseId, 30),
       this.getDifficultLessons(courseId),
+      this.getVideoHeatmap(courseId),
     ]);
 
     const completionRate =
@@ -116,6 +248,7 @@ export class InstructorAnalyticsService {
       trend30Days,
       primaryDropoutLesson: difficultLessons[0],
       difficultLessons,
+      videoHeatmap,
     };
 
     await this.cache.set(cacheKey, result, this.CACHE_TTL);
@@ -182,7 +315,179 @@ export class InstructorAnalyticsService {
     return result;
   }
 
+  /**
+   * Aggregate raw video events for every lesson in a course into a per-lesson
+   * heatmap: completion percentage plus the most-replayed segment.
+   */
+  async getVideoHeatmap(courseId: string): Promise<LessonVideoHeatmap[]> {
+    const SEGMENT_SIZE = 10; // seconds per heatmap bucket
+
+    const lessons = await this.lessonRepo.find({ where: { courseId } });
+    if (!lessons.length) return [];
+
+    const lessonIds = lessons.map((l) => l.id);
+    const events = await this.videoEventRepo
+      .createQueryBuilder('v')
+      .where('v.lessonId IN (:...lessonIds)', { lessonIds })
+      .getMany();
+
+    if (!events.length) return [];
+
+    const byLesson = new Map<string, VideoEvent[]>();
+    for (const event of events) {
+      const list = byLesson.get(event.lessonId);
+      if (list) list.push(event);
+      else byLesson.set(event.lessonId, [event]);
+    }
+
+    const heatmaps: LessonVideoHeatmap[] = [];
+
+    for (const lesson of lessons) {
+      const lessonEvents = byLesson.get(lesson.id);
+      if (!lessonEvents?.length) continue;
+
+      const viewers = new Set<string>();
+      const completers = new Set<string>();
+      const segmentCounts = new Map<number, number>();
+
+      for (const event of lessonEvents) {
+        if (event.userId) viewers.add(event.userId);
+
+        if (event.eventType === 'ended') {
+          if (event.userId) completers.add(event.userId);
+          else completers.add(`anon:${event.id}`);
+        }
+
+        if (event.eventType === 'seeked') {
+          const bucket =
+            Math.floor(event.timestampSeconds / SEGMENT_SIZE) * SEGMENT_SIZE;
+          segmentCounts.set(bucket, (segmentCounts.get(bucket) ?? 0) + 1);
+        }
+      }
+
+      const segments: VideoHeatmapSegment[] = Array.from(segmentCounts.entries())
+        .map(([startSeconds, replayCount]) => ({
+          startSeconds,
+          endSeconds: startSeconds + SEGMENT_SIZE,
+          replayCount,
+        }))
+        .sort((a, b) => a.startSeconds - b.startSeconds);
+
+      const mostReplayedSegment = segments.reduce<VideoHeatmapSegment | undefined>(
+        (best, seg) => (!best || seg.replayCount > best.replayCount ? seg : best),
+        undefined,
+      );
+
+      const uniqueViewers = viewers.size;
+      const completions = completers.size;
+      const completionPercentage =
+        uniqueViewers > 0
+          ? Math.round((completions / uniqueViewers) * 10000) / 100
+          : 0;
+
+      heatmaps.push({
+        lessonId: lesson.id,
+        lessonTitle: lesson.title,
+        uniqueViewers,
+        completions,
+        completionPercentage,
+        mostReplayedSegment,
+        segments,
+      });
+    }
+
+    return heatmaps.sort(
+      (a, b) => b.completionPercentage - a.completionPercentage,
+    );
+  }
+
   // ── Private helpers ──────────────────────────────────────────────────────────
+
+  /**
+   * Resolve the ids of all courses owned by the instructor. Prefers the
+   * CourseInstructor join table when present, falling back to the
+   * courses.instructorId column.
+   */
+  private async resolveInstructorCourseIds(
+    instructorId: string,
+  ): Promise<string[]> {
+    let ids: string[] = [];
+
+    try {
+      const rows = await this.courseRepo
+        .createQueryBuilder('c')
+        .innerJoin('course_instructors', 'ci', 'ci.courseId = c.id')
+        .where('ci.instructorId = :instructorId', { instructorId })
+        .select('DISTINCT c.id', 'id')
+        .getRawMany<{ id: string }>();
+      ids = rows.map((r) => r.id);
+    } catch (err) {
+      this.logger.debug(
+        `CourseInstructor lookup unavailable, falling back to courses.instructorId: ${(err as Error).message}`,
+      );
+    }
+
+    if (!ids.length) {
+      const rows = await this.courseRepo
+        .createQueryBuilder('c')
+        .where('c.instructorId = :instructorId', { instructorId })
+        .select('c.id', 'id')
+        .getRawMany<{ id: string }>();
+      ids = rows.map((r) => r.id);
+    }
+
+    return ids;
+  }
+
+  /**
+   * Build a 12-week weekly enrollment time series aggregated across the
+   * given course ids. Weeks start on Monday.
+   */
+  private async getWeeklyEnrollmentSeries(
+    courseIds: string[],
+  ): Promise<WeeklyEnrollmentPoint[]> {
+    const weeks = this.SUMMARY_WEEKS;
+    const since = this.startOfWeek(new Date(Date.now() - (weeks - 1) * 7 * 86_400_000));
+
+    const rows = await this.enrollmentRepo
+      .createQueryBuilder('e')
+      .where('e.courseId IN (:...courseIds)', { courseIds })
+      .andWhere('e.enrolledAt >= :since', { since })
+      .select("TO_CHAR(DATE_TRUNC('week', e.enrolledAt), 'YYYY-MM-DD')", 'weekStart')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy("DATE_TRUNC('week', e.enrolledAt)")
+      .orderBy("DATE_TRUNC('week', e.enrolledAt)", 'ASC')
+      .getRawMany<{ weekStart: string; count: string }>();
+
+    const map = new Map(rows.map((r) => [r.weekStart, Number(r.count)]));
+    const series: WeeklyEnrollmentPoint[] = [];
+    for (let i = weeks - 1; i >= 0; i--) {
+      const d = this.startOfWeek(new Date(Date.now() - i * 7 * 86_400_000));
+      const key = d.toISOString().slice(0, 10);
+      series.push({ weekStart: key, count: map.get(key) ?? 0 });
+    }
+    return series;
+  }
+
+  private buildEmptyWeeklySeries(): WeeklyEnrollmentPoint[] {
+    const series: WeeklyEnrollmentPoint[] = [];
+    for (let i = this.SUMMARY_WEEKS - 1; i >= 0; i--) {
+      const d = this.startOfWeek(new Date(Date.now() - i * 7 * 86_400_000));
+      series.push({ weekStart: d.toISOString().slice(0, 10), count: 0 });
+    }
+    return series;
+  }
+
+  /** Return the Monday (UTC) of the week containing the given date. */
+  private startOfWeek(date: Date): Date {
+    const d = new Date(
+      Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+    );
+    const day = d.getUTCDay(); // 0 = Sunday
+    const diff = (day + 6) % 7; // days since Monday
+    d.setUTCDate(d.getUTCDate() - diff);
+    return d;
+  }
 
   /**
    * Ensure the given course is owned by the instructor. Admins bypass the check.

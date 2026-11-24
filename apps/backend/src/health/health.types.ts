@@ -30,3 +30,31 @@ export interface ProbeCheckResult {
   message?: string;
   latencyMs?: number;
 }
+
+export type HealthStatus = 'ok' | 'degraded' | 'down';
+
+export type HealthCheckStatus = 'up' | 'down' | 'degraded';
+
+export interface HealthSubCheckResult {
+  status: HealthCheckStatus;
+  message?: string;
+  latencyMs?: number;
+}
+
+export interface HealthChecks {
+  db: HealthSubCheckResult;
+  redis: HealthSubCheckResult;
+  stellar: HealthSubCheckResult;
+}
+
+export interface HealthResponse {
+  status: HealthStatus;
+  checks: HealthChecks;
+  timestamp?: string;
+}
+
+export interface ReadinessResponse {
+  status: HealthStatus;
+  checks: HealthChecks;
+  timestamp?: string;
+}

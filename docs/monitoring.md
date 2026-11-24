@@ -34,6 +34,101 @@ docker compose -f docker-compose.monitoring.yml up -d
 └─────────────────────────────────────────────────────────┘
 ```
 
+## Metrics Endpoint
+
+The backend exposes a Prometheus-compatible endpoint at `GET /metrics`.
+
+### Authentication
+
+The endpoint is protected by a bearer token. Configure the expected token via the `METRICS_TOKEN` environment variable:
+
+```bash
+METRICS_TOKEN=your-secret-token
+```
+
+Requests without a valid `Authorization: Bearer <token>` header receive `401 Unauthorized`. Prometheus must be configured with the same token (see the scrape config below).
+
+### Custom Counters
+
+In addition to the standard Node.js process metrics, the endpoint exposes:
+
+- `enrollments_total` — Incremented on each new enrollment
+- `credentials_issued_total` — Incremented on each credential issued
+- `active_sessions` — Current number of active sessions
+
+### Prometheus Scrape Config
+
+The monitoring compose stack (`docker-compose.monitoring.yml`) includes a scrape job for the backend:
+
+```yaml
+scrape_configs:
+  - job_name: 'scoopdope-backend'
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials: '${METRICS_TOKEN}'
+    static_configs:
+      - targets: ['backend:3000']
+```
+
+## Health Check Endpoints
+
+The backend exposes granular health checks for all dependencies.
+
+### `GET /health`
+
+Returns a JSON body with an overall status and individual sub-check results:
+
+```json
+{
+  "status": "ok",
+  "checks": {
+    "db": { "status": "up" },
+    "redis": { "status": "up" },
+    "stellar": { "status": "up" }
+  }
+}
+```
+
+Status semantics:
+
+| Overall status | Meaning | HTTP status |
+|----------------|---------|-------------|
+| `ok` | All dependencies healthy | `200` |
+| `degraded` | A non-critical dependency (e.g. Redis) is down | `200` |
+| `down` | A critical dependency (e.g. database) is down | `503` |
+
+### `GET /health/ready`
+
+Readiness probe. Returns `503` if any critical dependency is down, `200` otherwise. Use this to route traffic away from degraded instances.
+
+### `GET /health/live`
+
+Liveness probe. Returns `200` as long as the API process is running. Use this to trigger restarts of hung instances.
+
+### Kubernetes Probe Configuration
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health/live
+    port: 3000
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: 3000
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  failureThreshold: 3
+```
+
+- **Liveness** — restarts the pod after 3 consecutive failures (default 20s interval).
+- **Readiness** — removes the pod from service endpoints after 3 consecutive failures (default 10s interval).
+
 ## Available Metrics
 
 ### HTTP Metrics

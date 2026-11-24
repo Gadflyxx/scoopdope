@@ -6,6 +6,8 @@ services:
     container_name: prometheus
     ports:
       - "9090:9090"
+    environment:
+      - METRICS_TOKEN=${METRICS_TOKEN:-}
     volumes:
       - ./infra/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
       - ./infra/monitoring/prometheus-rules.yml:/etc/prometheus/prometheus-rules.yml

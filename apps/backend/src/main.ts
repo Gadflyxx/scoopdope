@@ -3,7 +3,6 @@ import './instrument';
 import * as compression from 'compression';
 import * as express from 'express';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe, Logger, BadRequestException } from '@nestjs/common';
@@ -170,6 +169,10 @@ async function bootstrap() {
   logger.log(`Nest application initialized in ${Date.now() - startupStartedAt}ms`);
   app.enableShutdownHooks();
 
+  // #1390: Trust the first proxy hop so req.ip reflects the real client IP
+  // behind load balancers. Required for the admin IP allowlist to work.
+  app.set('trust proxy', 1);
+
   // #1026: Handle SIGTERM/SIGINT for graceful shutdown.
   registerGracefulShutdown(app, logger);
 
@@ -206,7 +209,7 @@ async function bootstrap() {
   app.use((req, res, next) => correlationId.use(req, res, next));
   app.use((req, res, next) => requestValidation.use(req, res, next));
 
-  app.setGlobalPrefix('v1', { exclude: ['health', 'health/live', 'health/ready', 'health/startup', 'health/environment', 'health/version'] });
+  app.setGlobalPrefix('v1', { exclude: ['health', 'health/live', 'health/ready', 'health/startup', 'health/environment', 'health/version', 'metrics'] });
   app.useGlobalPipes(
     new ValidationPipe({
       // Strip properties not declared in the DTO

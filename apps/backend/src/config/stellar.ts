@@ -63,6 +63,88 @@ export const stellarConfig = {
   horizonUrl: stellarHorizonUrl,
 } as const;
 
+const DEFAULT_STELLAR_HEALTH_TIMEOUT_MS = 3000;
+
+function resolveStellarHealthTimeout(): number {
+  const raw = process.env.STELLAR_HEALTH_TIMEOUT_MS?.trim();
+
+  if (!raw) {
+    return DEFAULT_STELLAR_HEALTH_TIMEOUT_MS;
+  }
+
+  const parsed = Number(raw);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_STELLAR_HEALTH_TIMEOUT_MS;
+  }
+
+  return parsed;
+}
+
+export const stellarHealthTimeoutMs: number = resolveStellarHealthTimeout();
+
+/**
+ * Result of a Stellar RPC/Horizon reachability probe.
+ */
+export interface StellarHealthCheckResult {
+  status: 'up' | 'down';
+  latencyMs: number;
+  url: string;
+  error?: string;
+}
+
+/**
+ * Probes the configured Stellar Horizon endpoint to verify reachability.
+ *
+ * Performs a lightweight `GET /` request against the Horizon root endpoint
+ * (which returns the network passphrase and Horizon version) with an
+ * abort-based timeout. Never throws: failures are reported as `status: 'down'`
+ * so the health service can aggregate them into an overall status.
+ */
+export async function checkStellarRpcHealth(
+  timeoutMs: number = stellarHealthTimeoutMs,
+): Promise<StellarHealthCheckResult> {
+  const url = stellarHorizonUrl;
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    });
+
+    const latencyMs = Date.now() - startedAt;
+
+    if (!response.ok) {
+      return {
+        status: 'down',
+        latencyMs,
+        url,
+        error: `Unexpected status ${response.status}`,
+      };
+    }
+
+    return { status: 'up', latencyMs, url };
+  } catch (error) {
+    const latencyMs = Date.now() - startedAt;
+    const isAbort = (error as { name?: string })?.name === 'AbortError';
+
+    return {
+      status: 'down',
+      latencyMs,
+      url,
+      error: isAbort
+        ? `Timed out after ${timeoutMs}ms`
+        : (error as Error)?.message ?? 'Unknown error',
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 let cachedHorizonServer: Horizon.Server | undefined;
 
 /**

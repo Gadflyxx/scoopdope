@@ -14,9 +14,7 @@ export type NotificationType =
   | 'reminder.due'
   | 'forum.reply'
   | 'moderation.action'
-  | 'support_ticket_update'
-  | 'reminder.inactivity'
-  | 'streak.reset';
+  | 'message.video';
 
 /**
  * A notification record.

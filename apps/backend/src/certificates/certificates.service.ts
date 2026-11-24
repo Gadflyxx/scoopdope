@@ -411,6 +411,19 @@ export class CertificatesService {
     });
   }
 
+  /**
+   * Returns all certificates belonging to a user, including course and
+   * learning-path relations. Used by the GDPR data export to serialise the
+   * user's certificates into a JSON file.
+   */
+  async findByUser(userId: string): Promise<Certificate[]> {
+    return this.certificatesRepository.find({
+      where: { userId },
+      relations: ['course', 'learningPath'],
+      order: { issuedAt: 'DESC' },
+    });
+  }
+
   /** Legacy hash-based verification — kept for backwards compatibility */
   async verifyCertificate(
     certificateHash: string,

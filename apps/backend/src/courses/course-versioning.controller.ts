@@ -29,6 +29,23 @@ export class CourseVersioningController {
     return this.versioningService.createVersion(courseId, changeNote, req.user.id);
   }
 
+  @Post('publish')
+  @Roles('admin', 'instructor')
+  @ApiOperation({ summary: 'Publish a new version of a course' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @ApiResponse({ status: 404, description: 'Not found' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  publishVersion(
+    @Param('courseId') courseId: string,
+    @Body('changeNote') changeNote: string,
+    @Request() req: { user: { id: string } },
+  ) {
+    return this.versioningService.publishVersion(courseId, changeNote, req.user.id);
+  }
+
   @Get()
   @Roles('admin', 'instructor')
   @ApiOperation({ summary: 'List all versions of a course' })

@@ -6,6 +6,7 @@ import {
   OneToMany,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { CourseModule } from './course-module.entity';
 import { User } from '../users/user.entity';
@@ -15,10 +16,12 @@ import { Category } from './category.entity';
 
 export enum CourseStatus {
   DRAFT = 'draft',
+  UNDER_REVIEW = 'under_review',
   PENDING_REVIEW = 'pending_review',
   SCHEDULED = 'scheduled',
   PENDING = 'pending',
   PUBLISHED = 'published',
+  REJECTED = 'rejected',
   ARCHIVED = 'archived',
 }
 
@@ -28,7 +31,15 @@ export enum CourseDifficulty {
   ADVANCED = 'advanced',
 }
 
+export enum CourseVisibility {
+  PUBLIC = 'public',
+  UNLISTED = 'unlisted',
+  ENROLLED_ONLY = 'enrolled_only',
+  PRIVATE = 'private',
+}
+
 @Entity('courses')
+@Index('IDX_courses_search_vector', ['searchVector'], { fulltext: true })
 export class Course {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -55,6 +66,16 @@ export class Course {
 
   @Column({ type: 'enum', enum: CourseStatus, default: CourseStatus.DRAFT })
   status: CourseStatus;
+
+  /**
+   * Visibility level controlling who may discover and access the course.
+   * - public: listed in search and accessible to everyone
+   * - unlisted: accessible via direct link but hidden from search
+   * - enrolled_only: accessible only to enrolled learners
+   * - private: accessible only to the instructor and admins
+   */
+  @Column({ type: 'enum', enum: CourseVisibility, default: CourseVisibility.PUBLIC })
+  visibility: CourseVisibility;
 
   /** @deprecated use status instead */
   @Column({ default: false })
@@ -89,6 +110,18 @@ export class Course {
   @Column({ nullable: true, type: 'timestamptz' })
   publishedAt: Date | null;
 
+  /** Optional notes provided by the admin when rejecting a course. */
+  @Column({ nullable: true, type: 'text' })
+  rejectionNotes: string | null;
+
+  /**
+   * Current content version of the course.
+   * Incremented when an instructor publishes a new version; enrollments
+   * freeze the version they started on so in-progress learners are unaffected.
+   */
+  @Column({ type: 'int', default: 1 })
+  version: number;
+
   /**
    * Maximum number of students that can be enrolled simultaneously.
    * Null means unlimited.
@@ -103,6 +136,20 @@ export class Course {
   /** Array of learning outcomes for the course */
   @Column({ type: 'jsonb', nullable: true })
   learningOutcomes: string[];
+
+  /**
+   * Generated full-text search vector over title and description.
+   * Weighted so title matches rank higher than description matches.
+   * Backed by a GIN index for efficient ts_rank queries.
+   */
+  @Column({
+    type: 'tsvector',
+    nullable: true,
+    select: false,
+    asExpression: `setweight(to_tsvector('english', coalesce(title, '')), 'A') || setweight(to_tsvector('english', coalesce(description, '')), 'B')`,
+    generatedType: 'STORED',
+  })
+  searchVector: string;
 
   // Why: SET NULL preserves course when instructor is deleted; course remains accessible but unassigned.
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
@@ -123,8 +170,13 @@ export class Course {
   @OneToMany(() => Review, (review) => review.course, { cascade: ['remove'] })
   reviews: Review[];
 
+  /** Prerequisite courses that must be completed before enrolling in this course. */
   @OneToMany(() => CoursePrerequisite, (cp) => cp.course, { cascade: ['remove'] })
   prerequisites: CoursePrerequisite[];
+
+  /** Inverse side: courses that list this course as a prerequisite. */
+  @OneToMany(() => CoursePrerequisite, (cp) => cp.prerequisiteCourse)
+  prerequisiteOf: CoursePrerequisite[];
 
   averageRating?: number | null;
 
@@ -147,5 +199,32 @@ export class Course {
     this.status = CourseStatus.PUBLISHED;
     this.isPublished = true;
     this.publishedAt = new Date();
+  }
+
+  /**
+   * Submit the course for moderation review.
+   * Clears any previous rejection notes so the reviewer starts fresh.
+   */
+  submitForReview(): void {
+    this.status = CourseStatus.UNDER_REVIEW;
+    this.isPublished = false;
+    this.rejectionNotes = null;
+  }
+
+  /**
+   * Approve a course under review and publish it.
+   */
+  approve(): void {
+    this.publish();
+    this.rejectionNotes = null;
+  }
+
+  /**
+   * Reject a course under review, optionally recording reviewer notes.
+   */
+  reject(notes?: string | null): void {
+    this.status = CourseStatus.REJECTED;
+    this.isPublished = false;
+    this.rejectionNotes = notes ?? null;
   }
 }

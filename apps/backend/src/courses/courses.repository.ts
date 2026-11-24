@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Course } from './course.entity';
+import { Course, CourseVisibility } from './course.entity';
 
 @Injectable()
 export class CoursesRepository {
@@ -13,8 +13,18 @@ export class CoursesRepository {
   async findAll(search?: string, language?: string): Promise<Course[]> {
     const query = this.repository.createQueryBuilder('course');
 
+    // Private courses must never appear in search results.
+    // Unlisted courses are also excluded from search results (they are only
+    // accessible via a direct link / known ID).
+    query.where('course.visibility NOT IN (:...excludedVisibilities)', {
+      excludedVisibilities: [
+        CourseVisibility.PRIVATE,
+        CourseVisibility.UNLISTED,
+      ],
+    });
+
     if (search) {
-      query.where('LOWER(course.title) LIKE LOWER(:search)', {
+      query.andWhere('LOWER(course.title) LIKE LOWER(:search)', {
         search: `%${search}%`,
       });
     }

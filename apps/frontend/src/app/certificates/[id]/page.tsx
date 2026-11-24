@@ -11,6 +11,8 @@ interface CertData {
   txHash: string;
   grade?: string;
   skills?: string[];
+  revokedAt?: string | null;
+  revocationReason?: string | null;
 }
 
 async function getCert(id: string): Promise<CertData | null> {
@@ -70,19 +72,48 @@ export default async function CertificatePage({ params }: { params: { id: string
   }
 
   const shareUrl = `${SITE_URL}/certificates/${cert.id}`;
+  const isRevoked = Boolean(cert.revokedAt);
 
   return (
     <main className="max-w-2xl mx-auto p-8 space-y-6">
-      <div className="border-4 border-blue-600 rounded-xl p-10 text-center space-y-4">
-        <h1 className="text-2xl font-bold text-blue-600">Certificate of Completion</h1>
+      {isRevoked && (
+        <div
+          role="alert"
+          className="border-4 border-red-600 bg-red-50 rounded-xl p-6 text-center space-y-2"
+        >
+          <span className="inline-block px-4 py-1 rounded-full bg-red-600 text-white text-sm font-bold tracking-widest">
+            REVOKED
+          </span>
+          <p className="text-red-700 font-medium">
+            This certificate has been revoked and is no longer valid.
+          </p>
+          <p className="text-sm text-red-600">
+            Revoked on {new Date(cert.revokedAt as string).toLocaleDateString()}
+          </p>
+          {cert.revocationReason && (
+            <p className="text-sm text-red-600">Reason: {cert.revocationReason}</p>
+          )}
+        </div>
+      )}
+
+      <div
+        className={`border-4 rounded-xl p-10 text-center space-y-4 ${
+          isRevoked ? 'border-gray-400 opacity-75' : 'border-blue-600'
+        }`}
+      >
+        <h1 className={`text-2xl font-bold ${isRevoked ? 'text-gray-500' : 'text-blue-600'}`}>
+          Certificate of Completion
+        </h1>
         <p className="text-lg text-gray-600">This certifies that</p>
         <p className="text-4xl font-bold">{cert.studentName}</p>
         <p className="text-lg text-gray-600">has successfully completed</p>
-        <p className="text-2xl font-semibold text-blue-600">{cert.courseName}</p>
+        <p className={`text-2xl font-semibold ${isRevoked ? 'text-gray-500' : 'text-blue-600'}`}>
+          {cert.courseName}
+        </p>
         
         {cert.grade && (
           <p className="text-md font-medium text-gray-700">
-            Grade: <span className="text-blue-600">{cert.grade}</span>
+            Grade: <span className={isRevoked ? 'text-gray-500' : 'text-blue-600'}>{cert.grade}</span>
           </p>
         )}
 
@@ -91,7 +122,14 @@ export default async function CertificatePage({ params }: { params: { id: string
             <p className="text-sm text-gray-500 mb-2 font-medium">Skills acquired:</p>
             <div className="flex flex-wrap justify-center gap-2">
               {cert.skills.map((skill, i) => (
-                <span key={i} className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full border border-blue-100">
+                <span
+                  key={i}
+                  className={`px-2 py-1 text-xs rounded-full border ${
+                    isRevoked
+                      ? 'bg-gray-50 text-gray-500 border-gray-200'
+                      : 'bg-blue-50 text-blue-700 border-blue-100'
+                  }`}
+                >
                   {skill}
                 </span>
               ))}

@@ -91,6 +91,31 @@
         { "name": "milestone_pct", "type": "u32" }
       ],
       "outputs": [{ "type": "MilestoneRecord" }]
+    },
+    {
+      "name": "revoke",
+      "doc": "Revoke an issued credential. Admin-only; writes an on-chain revocation record without altering the original issuance.",
+      "inputs": [
+        { "name": "credential_id", "type": "symbol" },
+        { "name": "reason", "type": "symbol" }
+      ],
+      "outputs": [{ "type": "void" }]
+    },
+    {
+      "name": "is_revoked",
+      "doc": "Return true if the given credential has been revoked.",
+      "inputs": [
+        { "name": "credential_id", "type": "symbol" }
+      ],
+      "outputs": [{ "type": "bool" }]
+    },
+    {
+      "name": "get_revocation",
+      "doc": "Retrieve the revocation record for a credential. Returns an error if the credential has not been revoked.",
+      "inputs": [
+        { "name": "credential_id", "type": "symbol" }
+      ],
+      "outputs": [{ "type": "RevocationRecord" }]
     }
   ],
   "types": {
@@ -129,6 +154,14 @@
         { "name": "course_id", "type": "symbol" },
         { "name": "milestone_pct", "type": "u32" },
         { "name": "achieved_at", "type": "u64" }
+      ]
+    },
+    "RevocationRecord": {
+      "fields": [
+        { "name": "credential_id", "type": "symbol" },
+        { "name": "revoked_by", "type": "address" },
+        { "name": "reason", "type": "symbol" },
+        { "name": "revoked_at", "type": "u64" }
       ]
     }
   },

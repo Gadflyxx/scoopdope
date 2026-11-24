@@ -60,6 +60,26 @@ export class CouponsService {
     return this.couponsRepository.save(coupons);
   }
 
+  /**
+   * Referral program discount applied to a referred learner's first purchase.
+   */
+  static readonly REFERRAL_DISCOUNT_PERCENTAGE = 10;
+
+  /**
+   * Computes the referral discount for a given price. Reuses the same
+   * percentage-based pricing path as coupons so it can be combined with
+   * coupon validation.
+   */
+  applyReferralDiscount(priceUsd: number): {
+    discount: number;
+    discountType: 'percentage';
+    discountPercentage: number;
+  } {
+    const discountPercentage = CouponsService.REFERRAL_DISCOUNT_PERCENTAGE;
+    const discount = (priceUsd * discountPercentage) / 100;
+    return { discount, discountType: 'percentage', discountPercentage };
+  }
+
   async validateForCheckout(
     code: string,
     priceUsd: number,

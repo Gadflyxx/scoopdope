@@ -24,12 +24,35 @@ function toInt(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function isProduction(): boolean {
+  return process.env.NODE_ENV === 'production';
+}
+
+/**
+ * Resolves a required credential from the environment. In production a missing
+ * value is a fatal misconfiguration; outside production we fall back to the
+ * provided development-only default so local tooling keeps working.
+ */
+function requireSecret(name: string, devFallback: string): string {
+  const value = process.env[name];
+  if (value && value.length > 0) {
+    return value;
+  }
+  if (isProduction()) {
+    throw new Error(
+      `Missing required environment variable ${name}. ` +
+        'Database credentials must be supplied via environment variables and must not be hardcoded.',
+    );
+  }
+  return devFallback;
+}
+
 export function getDatabasePoolSettings(): DatabasePoolSettings {
   return {
     host: process.env.DB_HOST ?? 'localhost',
     port: toInt(process.env.DB_PORT, 5432),
-    user: process.env.DB_USER ?? 'postgres',
-    password: process.env.DB_PASSWORD ?? 'postgres',
+    user: requireSecret('DB_USER', 'postgres'),
+    password: requireSecret('DB_PASSWORD', 'postgres'),
     database: process.env.DB_NAME ?? 'app',
     max: toInt(process.env.DB_POOL_MAX, 20),
     min: toInt(process.env.DB_POOL_MIN, 0),
@@ -75,5 +98,49 @@ export async function closePool(): Promise<void> {
   if (pool) {
     await pool.end();
     pool = undefined;
+  }
+}
+
+/**
+ * Result of a database health probe.
+ */
+export interface DatabaseHealthResult {
+  status: 'up' | 'down';
+  latencyMs: number;
+  error?: string;
+}
+
+/**
+ * Runs a lightweight `SELECT 1` against the shared pool to verify database
+ * connectivity. The probe is bounded by a timeout so a hung or unreachable
+ * database cannot stall health check responses.
+ */
+export async function checkDatabaseHealth(
+  timeoutMs: number = toInt(process.env.DB_HEALTH_TIMEOUT_MS, 2000),
+): Promise<DatabaseHealthResult> {
+  const startedAt = Date.now();
+  let timer: NodeJS.Timeout | undefined;
+
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`Database health check timed out after ${timeoutMs}ms`)),
+        timeoutMs,
+      );
+    });
+
+    await Promise.race([getPool().query('SELECT 1'), timeout]);
+
+    return { status: 'up', latencyMs: Date.now() - startedAt };
+  } catch (err) {
+    return {
+      status: 'down',
+      latencyMs: Date.now() - startedAt,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
 }

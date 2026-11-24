@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { User } from '../users/user.entity';
 import { Course } from '../courses/course.entity';
+import { Lesson } from '../lessons/lesson.entity';
 
 export enum DownloadStatus {
   PENDING = 'pending',
@@ -50,6 +51,35 @@ export class DownloadItem {
 
   @Column({ type: 'enum', enum: DownloadStatus, default: DownloadStatus.PENDING })
   status: DownloadStatus;
+
+  @CreateDateColumn()
+  createdAt: Date;
+}
+
+@Entity('lesson_resources')
+export class LessonResource {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column()
+  lessonId: string;
+
+  // Why: resources are attachments of a lesson; deleting the lesson removes its resources.
+  @ManyToOne(() => Lesson, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'lessonId' })
+  lesson: Lesson;
+
+  @Column()
+  filename: string;
+
+  @Column()
+  storageKey: string;
+
+  @Column({ type: 'bigint', default: 0 })
+  sizeBytes: number;
+
+  @Column()
+  mimeType: string;
 
   @CreateDateColumn()
   createdAt: Date;

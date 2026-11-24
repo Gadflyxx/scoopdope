@@ -126,10 +126,13 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
     userEmail: string;
     userName: string;
     locale?: string;
+    reason?: string | null;
     adminNote?: string | null;
   }): Promise<void> {
     const template = emailTemplates.applicationRejected({
-      ...data,
+      userEmail: data.userEmail,
+      userName: data.userName,
+      reason: data.reason ?? data.adminNote ?? null,
       locale: data.locale ?? 'en',
     });
     await this.enqueue(data.userEmail, template.subject, template.html);
@@ -329,51 +332,140 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
     await this.enqueue(payload.userEmail, tpl.subject, tpl.html);
   }
 
-  @OnEvent('support.ticket.replied')
-  async onSupportTicketReplied(payload: { userId: string; userEmail: string; userName: string; ticketId: string; ticketSubject: string; replyBody: string; locale?: string }) {
-    const prefs = await this.getOrCreatePrefs(payload.userId);
-    if (prefs.unsubscribedAll || !prefs.supportTicket) return;
+  // --- Q&A notifications ---
 
-    const tpl = emailTemplates.supportTicketReplied({
-      userName: payload.userName,
-      ticketSubject: payload.ticketSubject,
-      replyBody: payload.replyBody,
-      ticketUrl: `${this.config.get('frontend.url')}/account/support/${payload.ticketId}`,
+  @OnEvent('qa.question.created')
+  async onQuestionCreated(payload: {
+    instructorId: string;
+    instructorEmail: string;
+    instructorName: string;
+    learnerName: string;
+    courseId: string;
+    courseTitle: string;
+    lessonId: string;
+    lessonTitle: string;
+    questionId: string;
+    questionBody: string;
+    locale?: string;
+  }) {
+    const prefs = await this.getOrCreatePrefs(payload.instructorId);
+    if (prefs.unsubscribedAll || !prefs.qa) return;
+
+    const tpl = emailTemplates.questionPosted({
+      instructorName: payload.instructorName,
+      learnerName: payload.learnerName,
+      courseTitle: payload.courseTitle,
+      lessonTitle: payload.lessonTitle,
+      questionBody: payload.questionBody,
+      questionUrl: `${this.config.get('frontend.url')}/courses/${payload.courseId}/lessons/${payload.lessonId}#question-${payload.questionId}`,
       unsubscribeUrl: this.unsubscribeUrl(prefs.unsubscribeToken),
       locale: payload.locale ?? 'en',
     });
-    await this.enqueue(payload.userEmail, tpl.subject, tpl.html);
+    await this.enqueue(payload.instructorEmail, tpl.subject, tpl.html);
   }
 
-  @OnEvent('reminder.inactivity')
-  async onInactivityReminder(payload: { userId: string; userEmail: string; userName: string; courseId: string; courseTitle: string; progressPercent: number; locale?: string }) {
-    const prefs = await this.getOrCreatePrefs(payload.userId);
-    if (prefs.unsubscribedAll || !prefs.reminder) return;
+  @OnEvent('qa.answer.created')
+  async onAnswerCreated(payload: {
+    authorId: string;
+    authorEmail: string;
+    authorName: string;
+    answererName: string;
+    courseId: string;
+    courseTitle: string;
+    lessonId: string;
+    lessonTitle: string;
+    questionId: string;
+    questionBody: string;
+    answerBody: string;
+    locale?: string;
+  }) {
+    const prefs = await this.getOrCreatePrefs(payload.authorId);
+    if (prefs.unsubscribedAll || !prefs.qa) return;
 
-    const tpl = emailTemplates.inactivityReminder({
-      userName: payload.userName,
+    const tpl = emailTemplates.questionAnswered({
+      authorName: payload.authorName,
+      answererName: payload.answererName,
       courseTitle: payload.courseTitle,
-      progressPercent: payload.progressPercent,
+      lessonTitle: payload.lessonTitle,
+      questionBody: payload.questionBody,
+      answerBody: payload.answerBody,
+      questionUrl: `${this.config.get('frontend.url')}/courses/${payload.courseId}/lessons/${payload.lessonId}#question-${payload.questionId}`,
+      unsubscribeUrl: this.unsubscribeUrl(prefs.unsubscribeToken),
+      locale: payload.locale ?? 'en',
+    });
+    await this.enqueue(payload.authorEmail, tpl.subject, tpl.html);
+  }
+
+  // --- Moderation notifications ---
+
+  @OnEvent('course.submitted_for_review')
+  async onCourseSubmittedForReview(payload: {
+    adminId: string;
+    adminEmail: string;
+    adminName: string;
+    instructorName: string;
+    courseId: string;
+    courseTitle: string;
+    locale?: string;
+  }) {
+    const prefs = await this.getOrCreatePrefs(payload.adminId);
+    if (prefs.unsubscribedAll || !prefs.moderation) return;
+
+    const tpl = emailTemplates.courseSubmittedForReview({
+      adminName: payload.adminName,
+      instructorName: payload.instructorName,
+      courseTitle: payload.courseTitle,
+      reviewUrl: `${this.config.get('frontend.url')}/admin/courses/${payload.courseId}/review`,
+      unsubscribeUrl: this.unsubscribeUrl(prefs.unsubscribeToken),
+      locale: payload.locale ?? 'en',
+    });
+    await this.enqueue(payload.adminEmail, tpl.subject, tpl.html);
+  }
+
+  @OnEvent('course.approved')
+  async onCourseApproved(payload: {
+    instructorId: string;
+    instructorEmail: string;
+    instructorName: string;
+    courseId: string;
+    courseTitle: string;
+    locale?: string;
+  }) {
+    const prefs = await this.getOrCreatePrefs(payload.instructorId);
+    if (prefs.unsubscribedAll || !prefs.moderation) return;
+
+    const tpl = emailTemplates.courseApproved({
+      instructorName: payload.instructorName,
+      courseTitle: payload.courseTitle,
       courseUrl: `${this.config.get('frontend.url')}/courses/${payload.courseId}`,
       unsubscribeUrl: this.unsubscribeUrl(prefs.unsubscribeToken),
       locale: payload.locale ?? 'en',
     });
-    await this.enqueue(payload.userEmail, tpl.subject, tpl.html);
+    await this.enqueue(payload.instructorEmail, tpl.subject, tpl.html);
   }
 
-  @OnEvent('streak.reset')
-  async onStreakReset(payload: { userId: string; userEmail: string; userName: string; previousStreak: number; locale?: string }) {
-    const prefs = await this.getOrCreatePrefs(payload.userId);
-    if (prefs.unsubscribedAll || !prefs.streak) return;
+  @OnEvent('course.rejected')
+  async onCourseRejected(payload: {
+    instructorId: string;
+    instructorEmail: string;
+    instructorName: string;
+    courseId: string;
+    courseTitle: string;
+    rejectionNotes?: string | null;
+    locale?: string;
+  }) {
+    const prefs = await this.getOrCreatePrefs(payload.instructorId);
+    if (prefs.unsubscribedAll || !prefs.moderation) return;
 
-    const tpl = emailTemplates.streakReset({
-      userName: payload.userName,
-      previousStreak: payload.previousStreak,
-      dashboardUrl: `${this.config.get('frontend.url')}/dashboard`,
+    const tpl = emailTemplates.courseRejected({
+      instructorName: payload.instructorName,
+      courseTitle: payload.courseTitle,
+      rejectionNotes: payload.rejectionNotes ?? null,
+      editUrl: `${this.config.get('frontend.url')}/instructor/courses/${payload.courseId}/edit`,
       unsubscribeUrl: this.unsubscribeUrl(prefs.unsubscribeToken),
       locale: payload.locale ?? 'en',
     });
-    await this.enqueue(payload.userEmail, tpl.subject, tpl.html);
+    await this.enqueue(payload.instructorEmail, tpl.subject, tpl.html);
   }
 
   // --- Preferences management ---
@@ -382,7 +474,7 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
     return this.getOrCreatePrefs(userId);
   }
 
-  async updatePreferences(userId: string, updates: Partial<Pick<EmailPreference, 'enrollment' | 'completion' | 'credentialIssued' | 'marketing' | 'supportTicket' | 'reminder' | 'streak'>>) {
+  async updatePreferences(userId: string, updates: Partial<Pick<EmailPreference, 'enrollment' | 'completion' | 'credentialIssued' | 'marketing' | 'qa' | 'moderation'>>) {
     const prefs = await this.getOrCreatePrefs(userId);
     Object.assign(prefs, updates);
     return this.prefRepo.save(prefs);
