@@ -97,6 +97,26 @@ Configuration is in `deny.toml` at the repository root.
 3. **Accept Risk**: If no patch available, document the decision
 4. **Report Upstream**: Contact maintainers if critical
 
+## Secrets Management
+
+All secrets (database passwords, JWT signing keys, API keys, etc.) must be sourced from environment variables or a dedicated secrets manager. Hardcoded secrets in source code or committed configuration files are a critical security vulnerability and are not permitted.
+
+### Policy
+
+- **No secrets in committed files**: Never commit secret values to the repository. This includes source code, configuration files, and documentation.
+- **Environment variables only**: Every secret must be read from an environment variable at runtime.
+- **`.env.example` is the source of truth**: All required variable names and descriptions are documented in `.env.example`. Actual values must never be committed; `.env` files are git-ignored.
+
+### Startup Validation
+
+The backend validates required secrets during startup (see `apps/backend/src/config`). If a required environment variable is missing, the application fails to start with a clear error message indicating which variable is missing. This prevents the application from running in a misconfigured or insecure state.
+
+### CI Secret Scanning
+
+The CI pipeline runs secret scanning tools (`git-secrets` and/or `trufflehog`) against the repository to detect accidentally committed secrets. Any findings fail the build and must be remediated before merging.
+
+If a secret is ever committed, treat it as compromised: rotate the secret immediately and remove it from history.
+
 ## Code Quality
 
 See `sonar-project.properties` for SonarCloud configuration. Quality gates require:

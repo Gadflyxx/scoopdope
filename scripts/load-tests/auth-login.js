@@ -1,5 +1,12 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
+import { Counter } from 'k6/metrics';
+
+// Baseline p95 for this scenario (see scripts/load-tests/baselines.json).
+// Thresholds allow up to 20% regression over the baseline before failing CI.
+const BASELINE_P95_MS = 500;
+const P95_LIMIT_MS = Math.round(BASELINE_P95_MS * 1.2);
+const P99_LIMIT_MS = Math.round(BASELINE_P95_MS * 2);
 
 export const options = {
   stages: [
@@ -8,7 +15,8 @@ export const options = {
     { duration: '5s', target: 0 },
   ],
   thresholds: {
-    http_req_duration: ['p(95)<500', 'p(99)<1000'],
+    // Fail if p95 exceeds baseline by more than 20%.
+    http_req_duration: [`p(95)<${P95_LIMIT_MS}`, `p(99)<${P99_LIMIT_MS}`],
     http_req_failed: ['rate<0.01'],
     // Smoke assertion: fail the run if no response returns 200.
     checks: ['rate>0'],

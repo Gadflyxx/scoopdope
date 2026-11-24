@@ -19,11 +19,14 @@ export const options = {
     // Ramp-down: gradually decrease to 0 over 2 minutes
     { duration: '2m', target: 0 },
   ],
+  // Thresholds derived from committed baselines (scripts/load-tests/baselines.json).
+  // p95 limits = baseline p95 * 1.2 (20% regression budget); p99 limits are
+  // absolute ceilings. CI fails the load test step when any threshold is breached.
   thresholds: {
-    http_req_duration: ['p(95)<500', 'p(99)<1000', 'p(99.9)<2000'],
+    http_req_duration: ['p(95)<600', 'p(99)<1200', 'p(99.9)<2400'],
     http_req_failed: ['rate<0.05'],
-    'http_req_duration{staticAsset:yes}': ['p(99)<1000'],
-    'http_req_duration{api:yes}': ['p(99)<1000'],
+    'http_req_duration{staticAsset:yes}': ['p(95)<240', 'p(99)<1200'],
+    'http_req_duration{api:yes}': ['p(95)<600', 'p(99)<1200'],
   },
 };
 

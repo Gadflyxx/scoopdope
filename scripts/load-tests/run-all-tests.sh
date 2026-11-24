@@ -8,11 +8,17 @@ API_URL="${API_URL:-http://localhost:3000}"
 API_PREFIX="${API_PREFIX:-/api/v1}"
 RESULTS_DIR="./load-test-results"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+BASELINE_FILE="${BASELINE_FILE:-scripts/load-tests/baselines.json}"
+THRESHOLD_PERCENT="${THRESHOLD_PERCENT:-20}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 echo "🚀 Starting scoopdope Load Tests"
 echo "API URL: $API_URL"
 echo "API Prefix: $API_PREFIX"
 echo "Results Directory: $RESULTS_DIR"
+echo "Baseline File: $BASELINE_FILE"
+echo "Regression Threshold: ${THRESHOLD_PERCENT}%"
 
 # Create results directory
 mkdir -p "$RESULTS_DIR"
@@ -23,6 +29,24 @@ if ! command -v k6 &> /dev/null; then
     echo "   https://k6.io/docs/getting-started/installation/"
     exit 1
 fi
+
+# Check if node is installed (required for parsing/comparison)
+if ! command -v node &> /dev/null; then
+    echo "❌ node is not installed. It is required to parse and compare results."
+    exit 1
+fi
+
+# Verify baseline file exists
+if [ ! -f "$BASELINE_FILE" ]; then
+    echo "❌ Baseline file not found: $BASELINE_FILE"
+    echo "   Commit a baseline JSON file before running regression checks."
+    exit 1
+fi
+
+# Track scenarios that regressed
+REGRESSED_SCENARIOS=()
+SUMMARY_ROWS=()
+======
 
 # Function to run a load test
 run_test() {
@@ -68,6 +92,43 @@ run_test() {
         echo "❌ Test '$test_name' did not produce a results file: $output_file"
         exit 1
     fi
+
+    # Parse k6 results into a normalized metrics file
+    local metrics_file="$RESULTS_DIR/${test_name}_${TIMESTAMP}_metrics.json"
+    echo "🔍 Parsing results for '$test_name'..."
+    if ! node "$SCRIPT_DIR/parse-k6-results.js" "$output_file" > "$metrics_file"; then
+        echo "❌ Failed to parse results for '$test_name'."
+        exit 1
+    fi
+
+    # Compare against baseline
+    local comparison_file="$RESULTS_DIR/${test_name}_${TIMESTAMP}_comparison.json"
+    echo "📐 Comparing '$test_name' against baseline..."
+    node "$SCRIPT_DIR/compare-performance.js" \
+        --baseline "$BASELINE_FILE" \
+        --current "$metrics_file" \
+        --scenario "$test_name" \
+        --threshold "$THRESHOLD_PERCENT" \
+        --output "$comparison_file"
+
+    local compare_exit=$?
+
+    # Extract p95 values for the summary table
+    local baseline_p95 current_p95 regression_pct status
+    baseline_p95=$(node -e "try{const d=require('$comparison_file');console.log(d.baselineP95 ?? 'n/a')}catch(e){console.log('n/a')}")
+    current_p95=$(node -e "try{const d=require('$comparison_file');console.log(d.currentP95 ?? 'n/a')}catch(e){console.log('n/a')}")
+    regression_pct=$(node -e "try{const d=require('$comparison_file');console.log(d.regressionPercent ?? 'n/a')}catch(e){console.log('n/a')}")
+
+    if [ $compare_exit -ne 0 ]; then
+        status="❌ FAIL"
+        REGRESSED_SCENARIOS+=("$test_name")
+        echo "❌ Regression detected for '$test_name' (p95 ${baseline_p95}ms → ${current_p95}ms, ${regression_pct}% change)."
+    else
+        status="✅ PASS"
+        echo "✅ No regression for '$test_name' (p95 ${baseline_p95}ms → ${current_p95}ms, ${regression_pct}% change)."
+    fi
+
+    SUMMARY_ROWS+=("$(printf '%-20s | %12s | %12s | %10s | %s' "$test_name" "$baseline_p95" "$current_p95" "$regression_pct" "$status")")
 }
 
 # Run all tests
@@ -96,8 +157,27 @@ echo ""
 echo "Test Results:"
 ls -lh "$RESULTS_DIR"/*_${TIMESTAMP}.json 2>/dev/null | awk '{print "  - " $9 " (" $5 ")"}'
 
+# Display regression summary table
 echo ""
-echo "✨ Load testing completed successfully!"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📊 Performance Regression Summary (threshold: ${THRESHOLD_PERCENT}%)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+printf '%-20s | %12s | %12s | %10s | %s\n' "Scenario" "Baseline p95" "Current p95" "Change" "Status"
+echo "----------------------------------------------------------------------------------------"
+for row in "${SUMMARY_ROWS[@]}"; do
+    echo "$row"
+done
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+if [ ${#REGRESSED_SCENARIOS[@]} -gt 0 ]; then
+    echo ""
+    echo "❌ Performance regression detected in: ${REGRESSED_SCENARIOS[*]}"
+    echo "   One or more scenarios exceeded the ${THRESHOLD_PERCENT}% p95 threshold."
+    exit 1
+fi
+
+echo ""
+echo "✨ Load testing completed successfully with no regressions!"
 echo ""
 echo "Next steps:"
 echo "  1. Review results in: $RESULTS_DIR"

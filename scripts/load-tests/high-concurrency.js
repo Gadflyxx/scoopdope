@@ -54,12 +54,16 @@ export const options = {
     },
   },
   thresholds: {
-    http_req_duration: ['p(95)<1000', 'p(99)<2000'],
+    // Regression thresholds derived from committed baselines (scripts/load-tests/baselines.json):
+    // p95 limit = baseline p95 * 1.2 (20% regression tolerance), p99 limit = baseline p99 * 1.2.
+    // Baseline (high-concurrency): p95 = 800ms, p99 = 1600ms
+    http_req_duration: ['p(95)<960', 'p(99)<1920'],
     http_req_failed: ['rate<0.1'],
     // Pool validation scenario must show no connection exhaustion
     'connection_exhaustion_errors{scenario:pool_validation}': ['rate==0'],
     'server_errors{scenario:pool_validation}': ['rate<0.01'],
-    'db_heavy_request_duration{scenario:pool_validation}': ['p(95)<1500', 'p(99)<3000'],
+    // Baseline (pool_validation db-heavy): p95 = 1200ms, p99 = 2400ms
+    'db_heavy_request_duration{scenario:pool_validation}': ['p(95)<1440', 'p(99)<2880'],
   },
 };
 

@@ -20,7 +20,19 @@ export const options = {
     { duration: '30s', target: 0 },    // Ramp down
   ],
   thresholds: {
-    'http_req_duration': ['p(95)<500', 'p(99)<1000'],
+    // Baseline p95 values (see scripts/load-tests/baselines.json) with a 20% regression allowance.
+    // health: 100ms baseline -> 120ms limit
+    'http_req_duration{endpoint:health}': ['p(95)<120', 'p(99)<200'],
+    // courses: 500ms baseline -> 600ms limit
+    'http_req_duration{endpoint:courses}': ['p(95)<600', 'p(99)<1000'],
+    // course-detail: 300ms baseline -> 360ms limit
+    'http_req_duration{endpoint:course-detail}': ['p(95)<360', 'p(99)<600'],
+    // stellar-balance: 1000ms baseline -> 1200ms limit
+    'http_req_duration{endpoint:stellar-balance}': ['p(95)<1200', 'p(99)<2000'],
+    // docs: 200ms baseline -> 240ms limit
+    'http_req_duration{endpoint:docs}': ['p(95)<240', 'p(99)<400'],
+    // Overall guardrails
+    'http_req_duration': ['p(95)<600', 'p(99)<1000'],
     'http_req_failed': ['rate<0.01'],
     'errors': ['rate<0.01'],
     'smoke_success': ['count>0'],

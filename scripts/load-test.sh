@@ -8,13 +8,40 @@ set -e
 API_URL="${API_URL:-http://localhost:3000}"
 API_PREFIX="${API_PREFIX:-/api/v1}"
 RESULTS_DIR="./load-test-results"
+BASELINE_FILE="${BASELINE_FILE:-scripts/load-tests/baselines.json}"
+COMPARE_SCRIPT="${COMPARE_SCRIPT:-scripts/compare-performance.js}"
+REGRESSION_THRESHOLD="${REGRESSION_THRESHOLD:-20}"
 
 mkdir -p "$RESULTS_DIR"
 
 echo "🚀 Starting load tests for scoopdope API"
 echo "API URL: $API_URL"
 echo "API Prefix: $API_PREFIX"
+echo "Baseline: $BASELINE_FILE"
+echo "Regression threshold: ${REGRESSION_THRESHOLD}%"
 echo ""
+
+if [ ! -f "$BASELINE_FILE" ]; then
+  echo "❌ Baseline file not found: $BASELINE_FILE" >&2
+  exit 1
+fi
+
+# Compare a scenario's results against the committed baseline.
+# Exits non-zero when p95 regresses beyond the allowed threshold.
+# Usage: compare_against_baseline <scenario> <results-file>
+compare_against_baseline() {
+  local scenario="$1"
+  local results_file="$2"
+
+  echo "🔍 Comparing ${scenario} against baseline"
+  node "$COMPARE_SCRIPT" \
+    --baseline "$BASELINE_FILE" \
+    --results "$results_file" \
+    --scenario "$scenario" \
+    --threshold "$REGRESSION_THRESHOLD"
+  echo ""
+}
+=======
 
 # Run a k6 test and fail if no 200 responses were observed.
 # Usage: run_load_test <name> <vus> <duration> <script> <output-file>
@@ -53,6 +80,9 @@ run_load_test \
   30s \
   scripts/load-tests/courses.js \
   "$RESULTS_DIR/courses-load-test.json"
+compare_against_baseline \
+  "courses" \
+  "$RESULTS_DIR/courses-load-test.json"
 
 # Test 2: POST /api/v1/auth/login (100 VUs)
 run_load_test \
@@ -61,6 +91,9 @@ run_load_test \
   30s \
   scripts/load-tests/auth-login.js \
   "$RESULTS_DIR/login-load-test.json"
+compare_against_baseline \
+  "auth-login" \
+  "$RESULTS_DIR/login-load-test.json"
 
 # Test 3: GET /api/v1/stellar/balance/:key (50 VUs)
 run_load_test \
@@ -68,6 +101,9 @@ run_load_test \
   50 \
   30s \
   scripts/load-tests/stellar-balance.js \
+  "$RESULTS_DIR/stellar-balance-load-test.json"
+compare_against_baseline \
+  "stellar-balance" \
   "$RESULTS_DIR/stellar-balance-load-test.json"
 
 echo "✅ Load tests completed!"
